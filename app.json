@@ -1,42 +1,128 @@
 {
   "expo": {
-    "name": "arrive",
+    "name": "Arrive",
     "slug": "arrive",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/arrive-icon.png",
     "scheme": "arrive",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/images/arrive-icon.png",
+      "bundleIdentifier": "com.arrive.checkin",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
+      "package": "com.arrive.checkin",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#FAF0E2",
+        "foregroundImage": "./assets/images/arrive-adaptive.png",
+        "monochromeImage": "./assets/images/arrive-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "blockedPermissions": [
+        "android.permission.WRITE_CONTACTS",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_SMS",
+        "android.permission.RECEIVE_SMS",
+        "android.permission.SEND_SMS"
+      ]
     },
     "web": {
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "output": "single",
+      "favicon": "./assets/images/favicon.png",
+      "splash": {
+        "image": "./assets/images/arrive-splash.png",
+        "backgroundColor": "#FAF0E2",
+        "resizeMode": "contain"
+      }
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "backgroundColor": "#FAF0E2",
+          "image": "./assets/images/arrive-splash.png",
+          "imageWidth": 220,
+          "resizeMode": "contain"
+        }
+      ],
+      "expo-sqlite",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "color": "#788975",
+          "icon": "./assets/images/arrive-notification.png"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Choose a saved place or enable optional paired separation reminders. Manual check-ins never need your location.",
+          "locationAlwaysAndWhenInUsePermission": "Arrive uses background location for saved-place reminders and optional paired separation reminders that you enable.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ],
+      "./plugins/with-arrive-widget-assets",
+      [
+        "expo-widgets",
+        {
+          "enablePushNotifications": true,
+          "widgets": [
+            {
+              "name": "ArriveCheckIn",
+              "displayName": "Check In",
+              "description": "A little check-in. A closer you.",
+              "ios": {
+                "supportedFamilies": ["accessoryCircular", "accessoryRectangular", "systemSmall"]
+              }
+            }
+          ]
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan a QR to add a person to Arrive.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Choose a person to save locally in Arrive."
         }
       ]
     ],
     "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": true
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "ExpoWidgetsTarget",
+                  "bundleIdentifier": "com.arrive.checkin.ExpoWidgetsTarget",
+                  "entitlements": {
+                    "com.apple.security.application-groups": ["group.com.arrive.checkin"]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "projectId": "609a6665-a226-4c62-91fe-eeeeac8f0cdf"
+      }
     }
   }
 }

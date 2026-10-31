@@ -1,0 +1,8 @@
+{
+  "name": "arrive-widget-status",
+  "version": "1.0.0",
+  "description": "Reports whether Arrive's Lock Screen widget is configured.",
+  "main": "index.ts",
+  "license": "MIT",
+  "author": "Arrive"
+}

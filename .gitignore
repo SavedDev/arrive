@@ -41,3 +41,13 @@ example
 # generated native folders
 /ios
 /android
+
+.env
+.env.*
+!.env.example
+playwright-report/
+test-results/
+
+# local build output and Cloudflare dev state
+dist-local/
+.wrangler/

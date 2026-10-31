@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "arrive-smart-reminders",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-24",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "arrive-smart-reminders",
+      "database_id": "27323b9b-c999-49f5-9993-1ee375b3c170",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "REMINDERS",
+        "queue": "arrive-reminders",
+      },
+    ],
+    "consumers": [
+      {
+        "queue": "arrive-reminders",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 5,
+      },
+    ],
+  },
+  "vars": {
+    "APNS_BUNDLE_ID": "com.arrive.checkin",
+    "APNS_USE_SANDBOX": "true",
+    "DEVELOPMENT_MODE": "false",
+  },
+}
