@@ -133,6 +133,7 @@ test('settings sections and banner labels persist', async ({ page }) => {
   await page.goto('/settings/appearance');
   await expect(page.getByRole('switch', { name: 'Button labels', exact: true })).not.toBeChecked();
   // Manual check-ins don't depend on Smart Check-In at all.
+  await page.goto('/settings/reminders');
   await page.getByRole('switch', { name: 'Smart Check-In' }).uncheck();
   await expect(page.getByText('Active days', { exact: true })).toHaveCount(0);
   await page.goto('/settings');
