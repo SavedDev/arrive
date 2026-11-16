@@ -1,7 +1,9 @@
 import { ActivityBannerPreview } from '@/components/activity-banner-preview';
 import { AttentionBorder } from '@/components/attention-border';
 import { BrandMark } from '@/components/brand-mark';
-import { Landscape } from '@/components/illustrations';
+import { PlusBanner } from '@/components/plus-banner';
+import { onSheetClosing, onSheetHeight } from '@/lib/sheet-height';
+import { useAccess } from '@/lib/access';
 import { LocationWarning } from '@/components/location-warning';
 import {
   Avatar,
@@ -18,13 +20,13 @@ import { comingPreset, useSendCheckIn } from '@/components/use-send-check-in';
 import { activityPresets, activityShortcuts } from '@/lib/domain';
 import { hideSplash } from '@/lib/launch-splash';
 import { onSendRequest } from '@/lib/send-request';
-import { useWidgetConfigured } from '@/lib/use-widget-configured';
 import { useApp } from '@/state/app';
 import * as Haptics from 'expo-haptics';
-import { router } from 'expo-router';
-import { ArrowRight, MapPin, Plus, Settings2, ShieldCheck, Sparkles } from 'lucide-react-native';
-import { useEffect, useState } from 'react';
-import { AppState, Pressable, View } from 'react-native';
+import { Redirect, router, useFocusEffect } from 'expo-router';
+import { MapPin, Plus, Settings2, ShieldCheck } from 'lucide-react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { KeyboardAwareScrollViewRef } from 'react-native-keyboard-controller';
+import { AppState, Pressable, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 /**
@@ -47,7 +49,7 @@ export default function Home() {
   const { colors, prefs, presets, people } = app;
   const [bannerDragging, setBannerDragging] = useState(false);
   const insets = useSafeAreaInsets();
-  const widgetConfigured = useWidgetConfigured();
+  const access = useAccess();
   const bannerPresets = activityShortcuts(presets, prefs.activityPresetOrder);
   const checkIn = useSendCheckIn();
   const edit = (id: string) => router.push({ pathname: '/preset', params: { id } });
@@ -76,9 +78,55 @@ export default function Home() {
     [presets, prefs.defaultPreset, prefs.comingMessage, send],
   );
   const defaultPerson = people.find((c) => c.id === prefs.defaultRecipient);
+  // Appearance opens as a sheet over the lower part of Home. Home makes exactly as much room
+  // as the sheet covers and scrolls the banner preview to just above it, so changes show as
+  // they're made. When the sheet closes, Home glides back to where it was, then drops the room.
+  const scroll = useRef<KeyboardAwareScrollViewRef>(null);
+  const scrollY = useRef(0);
+  const preview = useRef({ y: 0, height: 0 });
+  const restoreY = useRef<number | null>(null);
+  const { height: windowHeight } = useWindowDimensions();
+  const [roomForSheet, setRoomForSheet] = useState(0);
+  // Glides back to where Home was before Appearance opened, then drops the extra room.
+  const restore = useCallback(() => {
+    const y = restoreY.current;
+    if (y === null) return;
+    restoreY.current = null;
+    scroll.current?.scrollTo({ y, animated: true });
+    setTimeout(() => setRoomForSheet(0), 350);
+  }, []);
+  const openAppearance = () => {
+    restoreY.current = scrollY.current;
+    const stop = onSheetHeight((sheet) => {
+      stop();
+      setRoomForSheet(sheet);
+      // One frame for the room to lay out before scrolling into it.
+      requestAnimationFrame(() => {
+        const visible = windowHeight - insets.top - sheet;
+        const below = preview.current.y + preview.current.height - (visible - 16);
+        // Bottom of the preview just above the sheet, but never its top above the screen.
+        const y = Math.max(0, Math.min(below, preview.current.y - 12));
+        scroll.current?.scrollTo({ y, animated: true });
+      });
+    });
+    // Moves back as the sheet starts sliding down, not after it's gone.
+    const stopClosing = onSheetClosing(() => {
+      stopClosing();
+      restore();
+    });
+    router.push({ pathname: '/settings/[section]', params: { section: 'appearance' } });
+  };
+  // If the sheet closed some other way, catch up once Home is back in front.
+  useFocusEffect(restore);
   const headerButton = { backgroundColor: colors.subtle, width: 42, height: 42 };
+  // New to Arrive: the welcome steps come first. (Upgrades are marked as set up already.)
+  if (!prefs.onboardingDone) return <Redirect href="/welcome" />;
+  // Arrive Plus is needed past onboarding; the layout sends everyone else to the paywall.
+  if (access === 'none') return <Redirect href="/paywall" />;
   return (
     <Screen
+      scrollRef={scroll}
+      onScrollY={(y) => (scrollY.current = y)}
       scrollEnabled={!bannerDragging}
       overlay={
         <Toast
@@ -211,89 +259,30 @@ export default function Home() {
           edit(p.id);
         }}
       />
-      <ActivityBannerPreview
-        presets={bannerPresets}
-        design={prefs.lockScreenStyle}
-        showLabels={prefs.activityButtonLabels}
-        onDragChange={setBannerDragging}
-        onAppearance={() =>
-          router.push({ pathname: '/settings/[section]', params: { section: 'appearance' } })
+      <View
+        onLayout={(e) =>
+          (preview.current = { y: e.nativeEvent.layout.y, height: e.nativeEvent.layout.height })
         }
-        onReorder={(shownIds) => {
-          const shown = new Set(shownIds);
-          const remainder = activityPresets(presets, prefs.activityPresetOrder)
-            .filter((preset) => !shown.has(preset.id))
-            .map((preset) => preset.id);
-          void app.updatePrefs({ activityPresetOrder: [...shownIds, ...remainder] });
-        }}
-      />
-      <Notice text={checkIn.note} />
-      {!widgetConfigured && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Add the Check In widget to your Lock Screen"
-          onPress={() => router.push('/widget')}
-          style={({ pressed }) => ({
-            backgroundColor: colors.softGreen,
-            borderRadius: 27,
-            padding: 23,
-            minHeight: 170,
-            marginTop: 24,
-            overflow: 'hidden',
-            justifyContent: 'center',
-            opacity: pressed ? 0.85 : 1,
-          })}
-        >
-          <View style={{ position: 'absolute', right: -5, bottom: -2 }}>
-            <Landscape width={150} height={145} />
-          </View>
-          <View style={{ maxWidth: '62%' }}>
-            <Txt weight="rounded" style={{ fontSize: 22, lineHeight: 28, letterSpacing: -0.5 }}>
-              Check in right from your Lock Screen.
-            </Txt>
-            <Txt tone="muted" style={{ fontSize: 12, lineHeight: 18, marginTop: 8 }}>
-              Add the Arrive widget. One tap and your words are ready.
-            </Txt>
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                alignSelf: 'flex-start',
-                gap: 6,
-                marginTop: 14,
-                backgroundColor: '#287B5A',
-                paddingHorizontal: 14,
-                paddingVertical: 8,
-                borderRadius: 14,
-              }}
-            >
-              <Txt weight="bold" style={{ fontSize: 12, lineHeight: 17, color: '#FFFFFF' }}>
-                Add the widget
-              </Txt>
-              <ArrowRight size={14} color="#FFFFFF" />
-            </View>
-          </View>
-        </Pressable>
-      )}
-      {!prefs.onboardingDone && (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.push('/welcome')}
-          style={{
-            flexDirection: 'row',
-            gap: 7,
-            alignSelf: 'center',
-            alignItems: 'center',
-            marginTop: 20,
-            minHeight: 44,
+      >
+        <ActivityBannerPreview
+          presets={bannerPresets}
+          design={prefs.lockScreenStyle}
+          showLabels={prefs.activityButtonLabels}
+          onDragChange={setBannerDragging}
+          onAppearance={openAppearance}
+          onReorder={(shownIds) => {
+            const shown = new Set(shownIds);
+            const remainder = activityPresets(presets, prefs.activityPresetOrder)
+              .filter((preset) => !shown.has(preset.id))
+              .map((preset) => preset.id);
+            void app.updatePrefs({ activityPresetOrder: [...shownIds, ...remainder] });
           }}
-        >
-          <Sparkles size={14} color={colors.green} />
-          <Txt tone="green" style={{ fontSize: 12 }}>
-            New here? Make yourself at home
-          </Txt>
-        </Pressable>
-      )}
+        />
+      </View>
+      <Notice text={checkIn.note} />
+      <View style={{ marginTop: 24 }}>
+        <PlusBanner />
+      </View>
       <View
         style={{
           flexDirection: 'row',
@@ -308,6 +297,7 @@ export default function Home() {
           A check-in, never a tracking app.
         </Txt>
       </View>
+      {roomForSheet > 0 && <View style={{ height: roomForSheet }} />}
     </Screen>
   );
 }

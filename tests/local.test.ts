@@ -317,3 +317,58 @@ test('"Coming" links are their own request, never the Home check-in', async () =
   assert.equal(home.coming, undefined);
   assert.equal(home.presetId, 'home');
 });
+
+test('icon search finds icons by name or keyword, best match first', async () => {
+  const { iconKeywords, searchIcons } = await import('../src/lib/icon-keywords');
+  const { iconNames } = await import('../src/lib/types');
+  // Every icon is searchable.
+  assert.deepEqual(Object.keys(iconKeywords).sort(), [...iconNames].sort());
+  assert.equal(searchIcons('coffee')[0], 'coffee');
+  assert.ok(searchIcons('cafe').includes('coffee'));
+  // Accents and capitals don't matter.
+  assert.ok(searchIcons('CAFÉ').includes('coffee'));
+  // Starts of words match, including inside phrases like "ice cream".
+  assert.ok(searchIcons('ice').includes('dessert'));
+  assert.ok(searchIcons('cream').includes('dessert'));
+  assert.ok(searchIcons('vet').includes('pet'));
+  // Every word typed has to match.
+  assert.deepEqual(searchIcons('dog park'), ['dog']);
+  assert.deepEqual(searchIcons('zzz'), []);
+  assert.deepEqual(searchIcons('   '), []);
+  // A name match ranks above a keyword match.
+  assert.equal(searchIcons('school')[0], 'school');
+});
+
+test('paywall wording comes from the store’s offer', async () => {
+  const { cachedAccessValid, trialLabel, yearlySavings } = await import('../src/lib/paywall');
+  const free = { price: 0, cycles: 1 };
+  assert.equal(
+    trialLabel({ ...free, periodUnit: 'DAY', periodNumberOfUnits: 7 }),
+    '7-day free trial',
+  );
+  assert.equal(
+    trialLabel({ ...free, periodUnit: 'WEEK', periodNumberOfUnits: 1 }),
+    '7-day free trial',
+  );
+  assert.equal(
+    trialLabel({ ...free, periodUnit: 'MONTH', periodNumberOfUnits: 1 }),
+    '1-month free trial',
+  );
+  // A paid intro price, or none, is not a free trial.
+  assert.equal(
+    trialLabel({ price: 0.99, cycles: 1, periodUnit: 'MONTH', periodNumberOfUnits: 1 }),
+    null,
+  );
+  assert.equal(trialLabel(null), null);
+  // $1.99/mo vs $19.99/yr: 16% less than paying monthly.
+  assert.equal(yearlySavings(1.99, 19.99), 16);
+  assert.equal(yearlySavings(1.99, 30), null);
+  assert.equal(yearlySavings(0, 19.99), null);
+  // The cached entitlement counts only while active and unexpired.
+  const now = Date.parse('2026-11-15T12:00:00Z');
+  assert.equal(cachedAccessValid({ active: true, expiresAt: now + 1 }, now), true);
+  assert.equal(cachedAccessValid({ active: true, expiresAt: now - 1 }, now), false);
+  assert.equal(cachedAccessValid({ active: true, expiresAt: null }, now), true);
+  assert.equal(cachedAccessValid({ active: false, expiresAt: null }, now), false);
+  assert.equal(cachedAccessValid(null, now), false);
+});

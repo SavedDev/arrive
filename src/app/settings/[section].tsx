@@ -488,7 +488,9 @@ export default function SettingsSheet() {
               void run(async () => {
                 await app.clearAppData();
                 setConfirmClear(false);
-                setNote('Local data cleared.');
+                // Starting over: close Settings and go through onboarding like a new install.
+                if (router.canDismiss()) router.dismissAll();
+                router.replace('/welcome');
               }).finally(() => setBusy(false));
             }}
           />

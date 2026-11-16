@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
-import { AppState, Linking, Platform, Pressable, View } from 'react-native';
-import * as Location from 'expo-location';
-import { MapPinOff } from 'lucide-react-native';
 import { Txt } from '@/components/ui';
 import { syncGeofences } from '@/lib/location';
 import { useApp } from '@/state/app';
+import * as Location from 'expo-location';
+import { MapPinOff } from 'lucide-react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { AppState, Linking, Platform, Pressable, View } from 'react-native';
 
 /**
  * Smart Check-In starts on its own when you leave a place, which needs Always location. When
@@ -84,7 +84,7 @@ export function LocationWarning() {
         </Txt>
       </View>
       <Txt weight="bold" style={{ fontSize: 13, color: colors.orange }}>
-        Fix
+        Turn on
       </Txt>
     </Pressable>
   );

@@ -2,6 +2,7 @@ import { presetIcons } from '@/design/icons';
 import { accents, fonts } from '@/design/theme';
 import { initials } from '@/lib/people';
 import type { Person, Preset } from '@/lib/types';
+import { reportSheetClosing, reportSheetHeight } from '@/lib/sheet-height';
 import { useApp } from '@/state/app';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
@@ -33,7 +34,10 @@ import {
   type TextProps,
   type ViewStyle,
 } from 'react-native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
+import {
+  KeyboardAwareScrollView,
+  type KeyboardAwareScrollViewRef,
+} from 'react-native-keyboard-controller';
 import Animated, {
   Easing,
   SlideInUp,
@@ -82,6 +86,9 @@ export function Screen({
   scrollEnabled = true,
   onClose = goBack,
   overlay,
+  scrollRef,
+  onScrollY,
+  footer,
 }: {
   children: React.ReactNode;
   title?: string;
@@ -100,6 +107,12 @@ export function Screen({
   onClose?: () => void;
   /** Floating content, like a toast, drawn above the scrolling page. */
   overlay?: React.ReactNode;
+  /** Lets the screen scroll itself, for example to bring something into view. */
+  scrollRef?: React.Ref<KeyboardAwareScrollViewRef>;
+  /** Hears how far the page is scrolled. */
+  onScrollY?: (y: number) => void;
+  /** Pinned to the bottom of the screen, below the scrolling page (for example, Continue). */
+  footer?: React.ReactNode;
 }) {
   const { colors } = useApp();
   const windowHeight = useWindowDimensions().height;
@@ -124,6 +137,7 @@ export function Screen({
     }
     if (closingSheet.current) return;
     closingSheet.current = true;
+    reportSheetClosing();
     backdropProgress.set(withTiming(0, { duration: 210, easing: Easing.inOut(Easing.cubic) }));
     sheetProgress.set(
       withTiming(0, { duration: 300, easing: Easing.bezier(0.4, 0, 1, 1) }, (finished) => {
@@ -152,7 +166,7 @@ export function Screen({
           }}
         />
       )}
-      {(title || back || sheet) && (
+      {(title || back || sheet || action) && (
         <View style={{ marginBottom: sheet ? 20 : 28 }}>
           <View style={styles.between}>
             <View style={[styles.row, { flex: 1, gap: 6 }]}>
@@ -198,6 +212,9 @@ export function Screen({
       // Keeps the focused field KEYBOARD_GAP above the keyboard on iOS and Android,
       // moving with the keyboard as it slides (Expo's recommended approach).
       <KeyboardAwareScrollView
+        ref={scrollRef}
+        onScroll={onScrollY ? (e) => onScrollY(e.nativeEvent.contentOffset.y) : undefined}
+        scrollEventThrottle={16}
         bottomOffset={KEYBOARD_GAP}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
@@ -220,6 +237,8 @@ export function Screen({
           style={[styles.overlaySheetBackdrop, backdropAnimatedStyle]}
         />
         <Animated.View
+          // Lets the screen underneath keep its content in view above the sheet.
+          onLayout={(e) => reportSheetHeight(e.nativeEvent.layout.height)}
           style={[
             styles.overlaySheet,
             {
@@ -252,6 +271,14 @@ export function Screen({
       }}
     >
       {body}
+      {footer && (
+        <SafeAreaView
+          edges={['bottom']}
+          style={{ backgroundColor: colors.background, borderTopWidth: 0 }}
+        >
+          <View style={[styles.footer, { paddingBottom: 12 }]}>{footer}</View>
+        </SafeAreaView>
+      )}
       {overlay}
     </SafeAreaView>
   );
@@ -736,6 +763,8 @@ export function Field({
   style,
   grow = false,
   strongLabel = false,
+  clearable = false,
+  clearButton = false,
   ...props
 }: TextInputProps & {
   label: string;
@@ -743,36 +772,100 @@ export function Field({
   grow?: boolean;
   /** A bolder label, for forms where the headers should stand out. */
   strongLabel?: boolean;
+  /** A "Clear" link beside the label: empties the field and puts the cursor in it. */
+  clearable?: boolean;
+  /** An ✕ inside the field, for one-line fields: empties it and puts the cursor in it. */
+  clearButton?: boolean;
 }) {
   const { colors } = useApp();
+  const input = React.useRef<TextInput>(null);
+  const showClear = clearable && !!props.value && props.editable !== false;
+  const showX = clearButton && !!props.value && props.editable !== false;
+  const clear = () => {
+    props.onChangeText?.('');
+    input.current?.focus();
+  };
   return (
     <View style={{ marginBottom: 20 }}>
-      <Txt weight={strongLabel ? 'bold' : 'medium'} style={{ marginBottom: 9, fontSize: 13 }}>
-        {label}
-      </Txt>
-      <TextInput
-        accessibilityLabel={label}
-        placeholderTextColor={colors.muted}
-        // Browsers draw a two-row text area by default. Native inputs already size to their text.
-        numberOfLines={grow && Platform.OS === 'web' ? 1 : undefined}
-        {...props}
-        style={[
-          {
-            backgroundColor: colors.surface,
-            color: colors.text,
-            borderColor: colors.border,
-            borderWidth: 1,
-            borderRadius: 15,
-            padding: 16,
-            minHeight: 54,
-            fontFamily: fonts.body,
-            fontSize: 15,
-          },
-          props.multiline && !grow && { minHeight: 112, textAlignVertical: 'top' },
-          grow && { paddingTop: 16, maxHeight: 180 },
-          style,
-        ]}
-      />
+      <View style={[styles.between, { marginBottom: 9, minHeight: 20 }]}>
+        <Txt weight={strongLabel ? 'bold' : 'medium'} style={{ fontSize: 13 }}>
+          {label}
+        </Txt>
+        {showClear && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Clear ${label.toLowerCase()}`}
+            hitSlop={12}
+            onPress={clear}
+          >
+            {({ pressed }) => (
+              <Txt
+                tone="green"
+                weight="medium"
+                style={{ fontSize: 13, opacity: pressed ? 0.6 : 1 }}
+              >
+                Clear
+              </Txt>
+            )}
+          </Pressable>
+        )}
+      </View>
+      <View>
+        <TextInput
+          ref={input}
+          accessibilityLabel={label}
+          placeholderTextColor={colors.muted}
+          // Browsers draw a two-row text area by default. Native inputs already size to their text.
+          numberOfLines={grow && Platform.OS === 'web' ? 1 : undefined}
+          {...props}
+          style={[
+            {
+              backgroundColor: colors.surface,
+              color: colors.text,
+              borderColor: colors.border,
+              borderWidth: 1,
+              borderRadius: 15,
+              padding: 16,
+              minHeight: 54,
+              fontFamily: fonts.body,
+              fontSize: 15,
+            },
+            props.multiline && !grow && { minHeight: 112, textAlignVertical: 'top' },
+            grow && { paddingTop: 16, maxHeight: 180 },
+            clearButton && { paddingRight: 48 },
+            style,
+          ]}
+        />
+        {showX && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Clear ${label.toLowerCase()}`}
+            hitSlop={8}
+            onPress={clear}
+            style={({ pressed }) => ({
+              position: 'absolute',
+              right: 12,
+              top: 0,
+              bottom: 0,
+              justifyContent: 'center',
+              opacity: pressed ? 0.6 : 1,
+            })}
+          >
+            <View
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: 12,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: colors.subtle,
+              }}
+            >
+              <X size={14} color={colors.muted} strokeWidth={2.4} />
+            </View>
+          </Pressable>
+        )}
+      </View>
     </View>
   );
 }
@@ -946,6 +1039,13 @@ export function Dismiss({ onPress }: { onPress: () => void }) {
   return <IconButton icon={X} label="Close" onPress={onPress} />;
 }
 export const styles = StyleSheet.create({
+  footer: {
+    width: '100%',
+    maxWidth: 540,
+    alignSelf: 'center',
+    paddingHorizontal: 25,
+    paddingTop: 12,
+  },
   page: {
     width: '100%',
     maxWidth: 540,

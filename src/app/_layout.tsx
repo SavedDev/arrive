@@ -1,8 +1,9 @@
 import '@/lib/location';
 import { hideSplash } from '@/lib/launch-splash';
 import { sendRequestedAtLaunch } from '@/lib/send-request';
+import { useAccess } from '@/lib/access';
 import { useEffect } from 'react';
-import { Stack } from 'expo-router';
+import { Stack, router, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -49,14 +50,26 @@ const settingsSheet =
       } as const);
 // Links that open a screen directly (the widget, notifications) still get Home underneath.
 export const unstable_settings = { initialRouteName: 'index' };
+/** Screens that still open without Arrive Plus: the paywall itself, and onboarding. */
+const OPEN_WITHOUT_PLUS = ['/paywall', '/welcome'];
 function Navigation({ fontsReady }: { fontsReady: boolean }) {
   const app = useApp();
   const { colors, isDark, error } = app;
   const ready = app.ready && fontsReady;
-  // Launched to send a check-in: Home hides the launch screen once Messages is up.
+  const access = useAccess();
+  const pathname = usePathname();
+  // Once set up, Arrive needs Arrive Plus (a free trial or a subscription). Without it, every
+  // screen and every Lock Screen or notification link leads to the paywall.
+  const locked = ready && app.prefs.onboardingDone && access === 'none';
   useEffect(() => {
-    if (error || (ready && !sendRequestedAtLaunch())) hideSplash();
-  }, [ready, error]);
+    if (locked && !OPEN_WITHOUT_PLUS.includes(pathname)) router.replace('/paywall');
+  }, [locked, pathname]);
+  // Launched to send a check-in: Home hides the launch screen once Messages is up. Otherwise
+  // it hides once Arrive knows whether Plus is active, so Home never flashes before the paywall.
+  const known = !app.prefs.onboardingDone || access !== 'checking';
+  useEffect(() => {
+    if (error || (ready && known && !sendRequestedAtLaunch())) hideSplash();
+  }, [ready, known, error]);
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
@@ -80,6 +93,8 @@ function Navigation({ fontsReady }: { fontsReady: boolean }) {
             ))}
             <Stack.Screen name="settings/[section]" options={settingsSheet} />
             <Stack.Screen name="reminder" options={{ animation: 'fade' }} />
+            {/* No swipe away: Arrive Plus is needed to go further. */}
+            <Stack.Screen name="paywall" options={{ animation: 'fade', gestureEnabled: false }} />
             {/* Forwards old check-in links to Home; never visible for more than a frame. */}
             <Stack.Screen name="check-in" options={{ animation: 'none' }} />
           </Stack>

@@ -119,19 +119,11 @@ export default function PresetEditor() {
             onPress={() => {
               const next = !favorite;
               const favoriteCount = app.presets.filter((preset) => preset.favorite).length;
-              if (
-                next &&
-                !existing?.favorite &&
-                favoriteCount >= MAX_ACTIVITY_SHORTCUTS
-              ) {
+              if (next && !existing?.favorite && favoriteCount >= MAX_ACTIVITY_SHORTCUTS) {
                 setWarning('Keep no more than 4 favorite check-ins for your Lock Screen banner.');
                 return;
               }
-              if (
-                !next &&
-                existing?.favorite &&
-                favoriteCount <= MIN_ACTIVITY_SHORTCUTS
-              ) {
+              if (!next && existing?.favorite && favoriteCount <= MIN_ACTIVITY_SHORTCUTS) {
                 setWarning('Keep at least 2 favorite check-ins for your Lock Screen banner.');
                 return;
               }
@@ -159,6 +151,7 @@ export default function PresetEditor() {
     >
       <Field
         label="Name"
+        clearButton
         placeholder="e.g. Pickleball"
         value={name}
         maxLength={40}
@@ -241,6 +234,7 @@ export default function PresetEditor() {
         value={message}
         multiline
         grow
+        clearable
         maxLength={500}
         onChangeText={(v) => {
           setEdited(true);
@@ -266,6 +260,8 @@ export default function PresetEditor() {
         label={existing ? 'Save check-in' : 'Add check-in'}
         onPress={save}
         loading={busy}
+        // Nothing to save until something changes. The star saves on its own, so it doesn't count.
+        disabled={!!existing && !dirty}
         style={{ marginTop: 24 }}
       />
       <ConfirmDialog

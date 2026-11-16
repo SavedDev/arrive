@@ -20,6 +20,7 @@ import {
   syncSmartRuntime,
 } from '@/lib/smart-reminders';
 import { needsSmartService, separationTriggerOn } from '@/lib/smart-checkin';
+import { useAccess } from '@/lib/access';
 export function Runtime() {
   const { ready, places, presets, people, prefs, setSmartPartner, updatePrefs } = useApp();
   // Keep the Lock Screen reminder's check-in buttons in step with edits.
@@ -96,8 +97,10 @@ export function Runtime() {
   }, [ready, places]);
   // Smart Check-In: either trigger (leaving a remembered place, going separate ways) starts
   // the Live Activity by push, so this phone registers for pushes and shares its active days.
-  const separation = separationTriggerOn(prefs);
-  const service = needsSmartService(prefs, places);
+  // Smart Check-In is part of Arrive Plus: without it, neither trigger runs.
+  const plus = useAccess() === 'active';
+  const separation = plus && separationTriggerOn(prefs);
+  const service = plus && needsSmartService(prefs, places);
   const days = prefs.activeDays.join(',');
   useEffect(() => {
     if (!ready || Platform.OS === 'web') return;

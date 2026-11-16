@@ -1,4 +1,11 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
+// These tests start as someone who's already set up; onboarding.spec.ts covers a new install.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('arrive:preferences'))
+      localStorage.setItem('arrive:preferences', JSON.stringify({ onboardingDone: true }));
+  });
+});
 // Home's check-ins send on tap and open the editor on a long press.
 async function hold(page: Page, target: Locator) {
   const box = (await target.boundingBox())!;
@@ -15,6 +22,8 @@ test('backendless home and native messaging unavailable on web are honest', asyn
   await expect(page.getByText('LAST CHECK-IN')).toHaveCount(0);
   await page.screenshot({ path: 'test-results/home-mobile.png', fullPage: true });
   await expect(page.getByText('Hold to edit', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open Arrive Plus' })).toBeVisible();
+  await expect(page.getByText('Check in right from your Lock Screen.')).toHaveCount(0);
   await page.getByRole('button', { name: 'Send Gym', exact: true }).click();
   await expect(page.getByText('Add your person first', { exact: false })).toBeVisible();
   await page.goto('/person');
@@ -57,12 +66,24 @@ test('create, customize, persist, favorite and delete a shortcut', async ({ page
   await expect(page.getByLabel('Message', { exact: true })).toHaveValue(
     "I've arrived at Pickleball! ❤️",
   );
+  // Clear empties the suggested message, ready to type your own.
+  await page.getByRole('button', { name: 'Clear message', exact: true }).click();
+  await expect(page.getByLabel('Message', { exact: true })).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Clear message', exact: true })).toHaveCount(0);
   await page.getByLabel('Message', { exact: true }).fill('Made it! See you later ❤️');
   await page.getByLabel('Name', { exact: true }).fill('Courts');
   await expect(page.getByLabel('Message', { exact: true })).toHaveValue(
     'Made it! See you later ❤️',
   );
   await page.getByRole('button', { name: 'See more icons', exact: true }).click();
+  await expect(page.getByText('Food & drink', { exact: true })).toBeVisible();
+  // Searching by keyword narrows the list; clearing it brings the categories back.
+  await page.getByLabel('Search icons', { exact: true }).fill('ice cream');
+  await expect(page.getByRole('button', { name: 'dessert icon', exact: true })).toBeVisible();
+  await expect(page.getByText('Food & drink', { exact: true })).toHaveCount(0);
+  await page.getByLabel('Search icons', { exact: true }).fill('zzz');
+  await expect(page.getByText(/No icons match/)).toBeVisible();
+  await page.getByRole('button', { name: 'Clear search', exact: true }).click();
   await expect(page.getByText('Food & drink', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'pizza icon', exact: true }).click();
   await expect(page.getByRole('button', { name: 'pizza icon', exact: true })).toHaveAttribute(
@@ -89,6 +110,12 @@ test('create, customize, persist, favorite and delete a shortcut', async ({ page
   expect(Math.round(seventh!.x)).toBe(Math.round(first!.x));
   expect(Math.round(seventh!.width)).toBe(Math.round(first!.width));
   await hold(page, page.getByRole('button', { name: 'Send Courts', exact: true }));
+  // Save waits for a real change; starring saves by itself and doesn't count.
+  const save = page.getByRole('button', { name: 'Save check-in', exact: true });
+  await expect(save).toBeDisabled();
+  await page.getByRole('button', { name: 'Add to favorites', exact: true }).click();
+  await expect(save).toBeDisabled();
+  await page.getByRole('button', { name: 'Remove from favorites', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Courts!');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByText('Discard your changes?', { exact: true })).toBeVisible();
@@ -107,7 +134,8 @@ test('create, customize, persist, favorite and delete a shortcut', async ({ page
 test('settings sections and banner labels persist', async ({ page }) => {
   await page.goto('/settings');
   await expect(page.getByRole('button', { name: 'Open Arrive Plus' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Set up the Lock Screen widget' })).toBeVisible();
+  // The widget isn't promoted anywhere; Arrive Plus is.
+  await expect(page.getByRole('button', { name: 'Set up the Lock Screen widget' })).toHaveCount(0);
   await expect(page.getByLabel('First name')).toHaveCount(0);
   await page.getByRole('button', { name: 'Smart Check-In', exact: true }).click();
   await page.getByRole('button', { name: '10 min', exact: true }).click();

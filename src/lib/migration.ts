@@ -5,6 +5,12 @@ import { initialPreferences, initialPresets, type Place, type Preferences } from
 // Old account IDs and server messages are never interpreted as local people or native sends.
 export async function migrateLocalData() {
   const version = await storage.read('local-version', 0);
+  // Checked before anything below writes defaults: saved data means Arrive was already set up.
+  const alreadySetUp =
+    version > 0 ||
+    (await storage.read<unknown>('presets', null)) !== null ||
+    (await storage.read<unknown>('places', null)) !== null ||
+    (await storage.read<unknown>('people', null)) !== null;
   if (version < 2) {
     const old = await storage.read<Record<string, unknown>>('preferences', {});
     const prefs = { ...initialPreferences };
@@ -95,5 +101,12 @@ export async function migrateLocalData() {
     }
     await storage.write('presets', capped);
   }
-  await storage.write('local-version', 6);
+  if (version < 7 && alreadySetUp) {
+    // Onboarding now opens on its own for new installs. Anyone upgrading has used Arrive
+    // already, so they skip it.
+    const prefs = await storage.read<Partial<Preferences>>('preferences', {});
+    if (!prefs.onboardingDone)
+      await storage.write('preferences', { ...prefs, onboardingDone: true });
+  }
+  await storage.write('local-version', 7);
 }

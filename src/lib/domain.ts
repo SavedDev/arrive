@@ -9,9 +9,7 @@ export function validatePreset(p: Pick<Preset, 'name' | 'message'>) {
 }
 export const sortedPresets = (p: Preset[]) =>
   [...p].sort(
-    (a, b) =>
-      Number(b.id === 'elsewhere') - Number(a.id === 'elsewhere') ||
-      a.order - b.order,
+    (a, b) => Number(b.id === 'elsewhere') - Number(a.id === 'elsewhere') || a.order - b.order,
   );
 export const MIN_ACTIVITY_SHORTCUTS = 2;
 export const MAX_ACTIVITY_SHORTCUTS = 4;

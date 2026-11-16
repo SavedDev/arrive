@@ -5,6 +5,7 @@ import * as Notifications from 'expo-notifications';
 import * as Crypto from 'expo-crypto';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { errorMessage } from './domain';
+import { hasAccessCached } from './access';
 import { read, write } from './storage';
 import { initialPreferences, type Place, type Visit } from './types';
 import { enableNotifications, localNotice } from './notifications';
@@ -34,6 +35,8 @@ async function handleEvent(
   eventType: Location.GeofencingEventType,
   region: Location.LocationRegion,
 ) {
+  // Smart Check-In is part of Arrive Plus; without it, leaving places starts nothing.
+  if (!(await hasAccessCached())) return;
   const places = await read<Place[]>('places', []),
     prefs = { ...initialPreferences, ...(await read('preferences', initialPreferences)) };
   if (region.identifier === ANCHOR_REGION) return handleAnchorEvent(eventType, places, prefs);

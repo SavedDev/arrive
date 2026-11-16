@@ -118,11 +118,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     validatePreset(p);
     const existing = state.current.presets.find((preset) => preset.id === p.id);
     const favoriteCount = state.current.presets.filter((preset) => preset.favorite).length;
-    if (
-      p.favorite &&
-      !existing?.favorite &&
-      favoriteCount >= MAX_ACTIVITY_SHORTCUTS
-    )
+    if (p.favorite && !existing?.favorite && favoriteCount >= MAX_ACTIVITY_SHORTCUTS)
       throw new Error('Keep no more than 4 favorite check-ins for your Lock Screen banner.');
     if (existing?.favorite && !p.favorite && favoriteCount <= MIN_ACTIVITY_SHORTCUTS)
       throw new Error('Keep at least 2 favorite check-ins for your Lock Screen banner.');
@@ -256,7 +252,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await stopMonitoring();
     await clearNotifications();
     await storage.clearAll();
-    await storage.write('local-version', 6);
+    // Current data version, so a cleared app starts fresh, with onboarding.
+    await storage.write('local-version', 7);
     setPrefs(initialPreferences);
     setPresets(initialPresets);
     setPlaces([]);

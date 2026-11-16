@@ -14,6 +14,7 @@ import {
   type ReminderSource,
 } from './reminder';
 import { activityShortcuts } from './domain';
+import { hasAccessCached } from './access';
 import { cancelDepartureCheckIn, requestDepartureCheckIn } from './smart-reminders';
 import { widgetIconAsset } from './widget-icons';
 import { sfSymbols } from './sf-symbols';
@@ -302,6 +303,13 @@ async function startReminderNow(source: ReminderSource = 'manual', coming = fals
  * Arrive returns to the foreground, so relaunches and restarts never create duplicates.
  */
 async function reconcileReminderNow() {
+  // Without Arrive Plus there's no Lock Screen reminder; end any that's still showing.
+  if (!(await hasAccessCached())) {
+    await endActivities();
+    const r = await readReminder();
+    if (isOpen(r)) await save(transition(r, { type: 'dismiss' }, Date.now()));
+    return r;
+  }
   const p = await prefs();
   const running = await instances();
   let current = await readReminder();
