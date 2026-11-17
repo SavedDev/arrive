@@ -30,9 +30,8 @@ export default function Privacy() {
         only a random event id and the delay, never your location, the place, or who you text. After
         you send an arrival check-in, Arrive keeps that one spot on this phone, so it can notice
         when you leave. A new check-in replaces it; no history of places is kept. Searching for an
-        address sends what you type to Google or Apple to find matches. Google also gets your rough
-        area, if location access is on, to show nearby results first. Notifications appear only when
-        a Live Activity can&apos;t, or to confirm a send. Manual check-ins work without location or
+        address sends what you type to Apple to find matches. Notifications appear only when a Live
+        Activity can&apos;t, or to confirm a send. Manual check-ins work without location or
         notification access.
       </Txt>
       <Section title="Smart Check-In: going separate ways" />

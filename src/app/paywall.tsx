@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import { Linking, Platform, Pressable, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import type { PurchasesPackage } from 'react-native-purchases';
-import { Bell, Check, Smartphone, Zap, type LucideIcon } from 'lucide-react-native';
+import { Bell, Check, Smartphone } from 'lucide-react-native';
+import Svg, { Path } from 'react-native-svg';
 import { PlusHeroArt } from '@/components/paywall-art';
 import { Button, Notice, Screen, Txt } from '@/components/ui';
 import { acceptCustomerInfo, setQaBypass, useAccess } from '@/lib/access';
@@ -12,10 +13,38 @@ import { entitlement, purchases } from '@/lib/purchases';
 import { useApp } from '@/state/app';
 
 type Plan = 'monthly' | 'yearly';
-const FEATURES: { icon: LucideIcon; tint: 'mint' | 'lavender' | 'cream'; title: string }[] = [
+type FeatureIcon = ComponentType<{ size: number; color: string; strokeWidth: number }>;
+
+/** An iOS Messages-style speech bubble, drawn in the same line style as the Lucide icons. */
+function MessageBubble({
+  size,
+  color,
+  strokeWidth,
+}: {
+  size: number;
+  color: string;
+  strokeWidth: number;
+}) {
+  return (
+    <Svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <Path d="M7.6 17.7A9.5 7.5 0 1 0 4.4 15.4C4.3 17 3.7 18.6 2.6 19.8C4.6 19.9 6.3 19.1 7.6 17.7Z" />
+    </Svg>
+  );
+}
+
+const FEATURES: { icon: FeatureIcon; tint: 'mint' | 'lavender' | 'cream'; title: string }[] = [
   { icon: Smartphone, tint: 'lavender', title: 'Lock Screen check-ins' },
   { icon: Bell, tint: 'cream', title: 'Smart reminders' },
-  { icon: Zap, tint: 'mint', title: 'Fully customizable' },
+  { icon: MessageBubble, tint: 'mint', title: 'Customized presets' },
 ];
 
 /**
@@ -186,7 +215,8 @@ export default function Paywall() {
           tone="muted"
           style={{ fontSize: 16, lineHeight: 22, textAlign: 'center', marginTop: 4 }}
         >
-          Everything you need to check in faster.
+          {/* Broken by hand, so the second line isn't left with a word or two. */}
+          {'Never forget to check in again, and\ndo it faster than ever.'}
         </Txt>
       </View>
 
