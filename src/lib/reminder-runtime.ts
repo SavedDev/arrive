@@ -16,6 +16,7 @@ import {
 import { activityShortcuts } from './domain';
 import { hasAccessCached } from './access';
 import { cancelDepartureCheckIn, requestDepartureCheckIn } from './smart-reminders';
+import { telUrl } from './send-request';
 import { widgetIconAsset } from './widget-icons';
 import { sfSymbols } from './sf-symbols';
 import {
@@ -76,7 +77,16 @@ const interactiveActivities =
 // keep using visible SF Symbols until that build is installed.
 const exactWidgetIconsAvailable = !!requireOptionalNativeModule('ArriveWidgetStatus');
 async function props(r: Reminder): Promise<ReminderActivityProps> {
-  const [p, presets] = await Promise.all([prefs(), read<Preset[]>('presets', initialPresets)]);
+  const [p, presets, people] = await Promise.all([
+    prefs(),
+    read<Preset[]>('presets', initialPresets),
+    read<Person[]>('people', []),
+  ]);
+  // The call button names the person by their id only; Arrive looks up the number when tapped.
+  const callee = p.activityCallButton
+    ? (people.find((c) => c.id === r.recipientId) ??
+      people.find((c) => c.id === p.defaultRecipient))
+    : undefined;
   // Favorites choose the 2–4 shortcuts; the draggable Home preview controls their order.
   const coming = !!r.coming && r.phase !== 'completed';
   const shown = activityShortcuts(presets, p.activityPresetOrder);
@@ -100,6 +110,14 @@ async function props(r: Reminder): Promise<ReminderActivityProps> {
     interactive: interactiveActivities,
     exactIcons: exactWidgetIconsAvailable,
     ...(coming ? { coming: { url: `${QUICK_CHECK_IN_URL}&coming=1` } } : {}),
+    ...(callee && telUrl(callee.phone)
+      ? {
+          call: {
+            url: `${CHECK_IN_URL}&call=1&recipient=${encodeURIComponent(callee.id)}`,
+            name: callee.name,
+          },
+        }
+      : {}),
     places: shown.map((preset) => ({
       id: preset.id,
       label: preset.name,

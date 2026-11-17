@@ -15,7 +15,6 @@ const assetName = (name) => `ArrivePreset${name[0].toUpperCase()}${name.slice(1)
 (async () => {
   const icons = JSON.parse(await fs.readFile(path.join(output, 'preset-icons.json'), 'utf8'));
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
-  const page = await browser.newPage({ deviceScaleFactor: 1 });
   for (const [name, sourceName] of Object.entries(icons)) {
     const source = await fs.readFile(path.join(iconDirectory, `${sourceName}.mjs`), 'utf8');
     const match = source.match(/const iconData = (\{[\s\S]*?\n\});/);
@@ -34,7 +33,12 @@ const assetName = (name) => `ArrivePreset${name[0].toUpperCase()}${name.slice(1)
     for (const scale of [1, 2, 3]) {
       const size = 32 * scale;
       const suffix = scale === 1 ? '' : `@${scale}x`;
-      await page.setViewportSize({ width: size, height: size });
+      // A fresh page per size: resizing one page can capture before it redraws, leaving the
+      // larger images blank.
+      const page = await browser.newPage({
+        deviceScaleFactor: 1,
+        viewport: { width: size, height: size },
+      });
       await page.setContent(
         `<style>html,body{margin:0;width:100%;height:100%;overflow:hidden}svg{width:100%;height:100%}</style>${svg}`,
       );
@@ -42,6 +46,7 @@ const assetName = (name) => `ArrivePreset${name[0].toUpperCase()}${name.slice(1)
         path: path.join(output, `preset-${name}${suffix}.png`),
         omitBackground: true,
       });
+      await page.close();
     }
     process.stdout.write(`${assetName(name)}\n`);
   }

@@ -1,8 +1,6 @@
 import { ActivityBannerPreview } from '@/components/activity-banner-preview';
 import { AttentionBorder } from '@/components/attention-border';
 import { BrandMark } from '@/components/brand-mark';
-import { PlusBanner } from '@/components/plus-banner';
-import { onSheetClosing, onSheetHeight } from '@/lib/sheet-height';
 import { useAccess } from '@/lib/access';
 import { LocationWarning } from '@/components/location-warning';
 import {
@@ -19,14 +17,14 @@ import {
 import { comingPreset, useSendCheckIn } from '@/components/use-send-check-in';
 import { activityPresets, activityShortcuts } from '@/lib/domain';
 import { hideSplash } from '@/lib/launch-splash';
-import { onSendRequest } from '@/lib/send-request';
+import { onSendRequest, telUrl } from '@/lib/send-request';
 import { useApp } from '@/state/app';
 import * as Haptics from 'expo-haptics';
 import { Redirect, router, useFocusEffect } from 'expo-router';
 import { MapPin, Plus, Settings2, ShieldCheck } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { KeyboardAwareScrollViewRef } from 'react-native-keyboard-controller';
-import { AppState, Pressable, useWindowDimensions, View } from 'react-native';
+import { AppState, Linking, Pressable, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 /**
@@ -58,6 +56,19 @@ export default function Home() {
   useEffect(
     () =>
       onSendRequest((r) => {
+        if (r.call) {
+          // The banner's call button: iOS asks "Call …?" itself, so nothing is dialled silently.
+          const person =
+            people.find((c) => c.id === r.recipientId) ??
+            people.find((c) => c.id === prefs.defaultRecipient);
+          const url = person && telUrl(person.phone);
+          if (!url) return hideSplash();
+          return whenOnScreen(() => {
+            void Linking.openURL(url)
+              .catch(() => {})
+              .finally(hideSplash);
+          });
+        }
         const id = r.presetId || (r.useDefault ? prefs.defaultPreset : '');
         // "Coming" isn't one of the check-ins on Home: it's the heading-home message.
         const preset = r.coming
@@ -75,46 +86,50 @@ export default function Home() {
           void sending.finally(hideSplash);
         });
       }),
-    [presets, prefs.defaultPreset, prefs.comingMessage, send],
+    [presets, people, prefs.defaultPreset, prefs.defaultRecipient, prefs.comingMessage, send],
   );
   const defaultPerson = people.find((c) => c.id === prefs.defaultRecipient);
-  // Appearance opens as a sheet over the lower part of Home. Home makes exactly as much room
-  // as the sheet covers and scrolls the banner preview to just above it, so changes show as
-  // they're made. When the sheet closes, Home glides back to where it was, then drops the room.
+  // Appearance slides down from the top, leaving the Lock Screen banner preview (at the bottom
+  // of Home) in view, so changes show as they're made; the sheet draws an undimmed copy of the
+  // preview right over it. If the preview is scrolled out of view, Home first brings it up to
+  // the bottom of the screen, then glides back once the sheet has closed.
   const scroll = useRef<KeyboardAwareScrollViewRef>(null);
   const scrollY = useRef(0);
-  const preview = useRef({ y: 0, height: 0 });
+  const preview = useRef<View>(null);
   const restoreY = useRef<number | null>(null);
   const { height: windowHeight } = useWindowDimensions();
-  const [roomForSheet, setRoomForSheet] = useState(0);
-  // Glides back to where Home was before Appearance opened, then drops the extra room.
+  // Glides back to where Home was before Appearance opened.
   const restore = useCallback(() => {
     const y = restoreY.current;
     if (y === null) return;
     restoreY.current = null;
     scroll.current?.scrollTo({ y, animated: true });
-    setTimeout(() => setRoomForSheet(0), 350);
   }, []);
   const openAppearance = () => {
-    restoreY.current = scrollY.current;
-    const stop = onSheetHeight((sheet) => {
-      stop();
-      setRoomForSheet(sheet);
-      // One frame for the room to lay out before scrolling into it.
-      requestAnimationFrame(() => {
-        const visible = windowHeight - insets.top - sheet;
-        const below = preview.current.y + preview.current.height - (visible - 16);
-        // Bottom of the preview just above the sheet, but never its top above the screen.
-        const y = Math.max(0, Math.min(below, preview.current.y - 12));
-        scroll.current?.scrollTo({ y, animated: true });
+    const open = (params: Record<string, string> = {}) =>
+      router.push({
+        pathname: '/settings/[section]',
+        params: { section: 'appearance', from: 'top', ...params },
       });
+    const node = preview.current;
+    if (!node) return open({ room: String(Math.round(windowHeight * 0.6)) });
+    node.measureInWindow((x, top, width, height) => {
+      // How far the preview's bottom sits below the visible screen, if at all.
+      const below = top + height - (windowHeight - insets.bottom - 12);
+      const y = top - Math.max(0, below);
+      const params = {
+        // The sheet may grow down to just above the preview.
+        room: String(Math.round(Math.max(280, y - 12))),
+        px: String(x),
+        py: String(y),
+        pw: String(width),
+      };
+      if (below <= 0) return open(params);
+      restoreY.current = scrollY.current;
+      scroll.current?.scrollTo({ y: scrollY.current + below, animated: true });
+      // Opens once the preview has arrived, so the sheet's copy lands right on it.
+      setTimeout(() => open(params), 320);
     });
-    // Moves back as the sheet starts sliding down, not after it's gone.
-    const stopClosing = onSheetClosing(() => {
-      stopClosing();
-      restore();
-    });
-    router.push({ pathname: '/settings/[section]', params: { section: 'appearance' } });
   };
   // If the sheet closed some other way, catch up once Home is back in front.
   useFocusEffect(restore);
@@ -259,15 +274,14 @@ export default function Home() {
           edit(p.id);
         }}
       />
-      <View
-        onLayout={(e) =>
-          (preview.current = { y: e.nativeEvent.layout.y, height: e.nativeEvent.layout.height })
-        }
-      >
+      {/* The Lock Screen banner sits at the bottom of Home. */}
+      <View style={{ flex: 1, minHeight: 8 }} />
+      <View ref={preview} collapsable={false}>
         <ActivityBannerPreview
           presets={bannerPresets}
           design={prefs.lockScreenStyle}
           showLabels={prefs.activityButtonLabels}
+          showCall={prefs.activityCallButton && !!defaultPerson && !!telUrl(defaultPerson.phone)}
           onDragChange={setBannerDragging}
           onAppearance={openAppearance}
           onReorder={(shownIds) => {
@@ -280,9 +294,6 @@ export default function Home() {
         />
       </View>
       <Notice text={checkIn.note} />
-      <View style={{ marginTop: 24 }}>
-        <PlusBanner />
-      </View>
       <View
         style={{
           flexDirection: 'row',
@@ -297,7 +308,6 @@ export default function Home() {
           A check-in, never a tracking app.
         </Txt>
       </View>
-      {roomForSheet > 0 && <View style={{ height: roomForSheet }} />}
     </Screen>
   );
 }

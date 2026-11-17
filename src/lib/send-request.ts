@@ -11,6 +11,8 @@ export type SendRequest = {
   fromReminder?: boolean;
   /** "Coming" from the Lock Screen: the heading-home message instead of a check-in. */
   coming?: boolean;
+  /** The banner's call button: phone this person instead of sending a check-in. */
+  call?: boolean;
 };
 
 let pending: SendRequest | null = null;
@@ -43,6 +45,13 @@ export function onSendRequest(fn: (r: SendRequest) => void) {
 export function sendRequestFromQuery(query: Record<string, string | undefined>): SendRequest {
   // An uncertain arrival chooses no destination; the person picks one on Home.
   const choose = query.choose === '1';
+  if (query.call === '1')
+    return {
+      presetId: '',
+      call: true,
+      recipientId: query.recipient || undefined,
+      fromReminder: query.from === 'reminder',
+    };
   return {
     presetId: choose ? '' : query.preset || '',
     useDefault: !choose && !query.preset && query.coming !== '1' && query.quick === '1',
@@ -72,4 +81,10 @@ export function checkInLinkQuery(link: string): Record<string, string> | null {
     }
   }
   return query;
+}
+
+/** A tel: link for a saved number, or null when it has no digits to dial. */
+export function telUrl(phone: string) {
+  const number = phone.replace(/[^\d+*#]/g, '');
+  return /\d/.test(number) ? `tel:${number}` : null;
 }

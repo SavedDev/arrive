@@ -13,6 +13,8 @@ export default function CheckInLink() {
     choose?: string;
     quick?: string;
     from?: string;
+    coming?: string;
+    call?: string;
   }>();
   const { colors } = useApp();
   const navigation = useNavigation();

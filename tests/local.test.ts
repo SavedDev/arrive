@@ -318,6 +318,52 @@ test('"Coming" links are their own request, never the Home check-in', async () =
   assert.equal(home.presetId, 'home');
 });
 
+test('the banner call button asks to call a person and never sends a check-in', async () => {
+  const { checkInLinkQuery, sendRequestFromQuery, telUrl } =
+    await import('../src/lib/send-request');
+  const call = sendRequestFromQuery(
+    checkInLinkQuery('arrive://check-in?from=reminder&call=1&recipient=p1')!,
+  );
+  assert.deepEqual(call, { presetId: '', call: true, recipientId: 'p1', fromReminder: true });
+  assert.equal(telUrl('+1 (555) 010-2030'), 'tel:+15550102030');
+  assert.equal(telUrl(''), null);
+  const { initialPreferences } = await import('../src/lib/types');
+  // Off until someone turns it on in Appearance.
+  assert.equal(initialPreferences.activityCallButton, false);
+});
+
+test('every check-in icon has a Lock Screen image of the same Lucide glyph', async () => {
+  const fs = await import('node:fs');
+  const { iconNames } = await import('../src/lib/types');
+  const { widgetIconAsset } = await import('../src/lib/widget-icons');
+  // What the app draws: the Lucide component each icon name uses.
+  const icons = fs.readFileSync('src/design/icons.tsx', 'utf8');
+  const appIcon = Object.fromEntries(
+    [...icons.matchAll(/^\s+(\w+): (\w+),$/gm)].map(([, name, component]) => [name, component]),
+  );
+  // Lucide exports one icon under several names; resolve each to its glyph file.
+  const lucide = fs.readFileSync(
+    'node_modules/lucide-react-native/dist/esm/lucide-react-native.mjs',
+    'utf8',
+  );
+  const glyph = (component: string) =>
+    lucide.match(
+      new RegExp(`default as ${component}\\b[^;]*?from '\\./icons/([\\w-]+)\\.mjs'`),
+    )?.[1];
+  // What the banner draws: images exported from these glyphs by scripts/create-widget-icons.cjs.
+  const exported: Record<string, string> = JSON.parse(
+    fs.readFileSync('assets/widgets/preset-icons.json', 'utf8'),
+  );
+  assert.deepEqual(Object.keys(exported).sort(), [...iconNames].sort());
+  for (const name of iconNames) {
+    assert.ok(appIcon[name], `${name} has no icon in the app`);
+    assert.equal(exported[name], glyph(appIcon[name]), `${name} differs on the Lock Screen`);
+    for (const suffix of ['', '@2x', '@3x'])
+      assert.ok(fs.existsSync(`assets/widgets/preset-${name}${suffix}.png`), `${name}${suffix}`);
+    assert.equal(widgetIconAsset(name), `ArrivePreset${name[0].toUpperCase()}${name.slice(1)}`);
+  }
+});
+
 test('icon search finds icons by name or keyword, best match first', async () => {
   const { iconKeywords, searchIcons } = await import('../src/lib/icon-keywords');
   const { iconNames } = await import('../src/lib/types');

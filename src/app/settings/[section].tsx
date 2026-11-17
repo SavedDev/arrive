@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Linking, Platform, Pressable, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Bell, HelpCircle, Mail, Settings2, Shield, Trash2 } from 'lucide-react-native';
 import {
   Button,
@@ -11,13 +12,16 @@ import {
   Row,
   Screen,
   Section,
+  Toast,
   Toggle,
   Txt,
   goBack,
 } from '@/components/ui';
+import { ActivityBannerPreview } from '@/components/activity-banner-preview';
 import { LockScreenStylePicker } from '@/components/lock-screen-style';
 import { useApp } from '@/state/app';
-import { errorMessage } from '@/lib/domain';
+import { activityShortcuts, errorMessage } from '@/lib/domain';
+import { telUrl } from '@/lib/send-request';
 import { separationTriggerOn } from '@/lib/smart-checkin';
 import { initialPreferences } from '@/lib/types';
 import { enableNotifications, cancelReminders } from '@/lib/notifications';
@@ -126,7 +130,16 @@ function DayPicker({ days, onChange }: { days: number[]; onChange: (days: number
   );
 }
 export default function SettingsSheet() {
-  const { section } = useLocalSearchParams<{ section: SettingsSection }>();
+  // Home opens Appearance from the top, leaving its Lock Screen banner preview in view below,
+  // and says how much room there is above that preview and where the preview sits on screen.
+  const { section, from, room, px, py, pw } = useLocalSearchParams<{
+    section: SettingsSection;
+    from?: 'top';
+    room?: string;
+    px?: string;
+    py?: string;
+    pw?: string;
+  }>();
   const app = useApp(),
     { prefs } = app;
   const [error, setError] = useState(''),
@@ -174,10 +187,50 @@ export default function SettingsSheet() {
     }
   }
   const title = titles[section] || 'Settings';
+  // The banner's call button phones your default person, so it needs one with a number.
+  const callee = app.people.find((c) => c.id === prefs.defaultRecipient);
+  const canCall = !!callee && !!telUrl(callee.phone);
+  const callUnavailable = !callee
+    ? 'Choose a default person to use the call button.'
+    : !canCall
+      ? `Add a phone number for ${callee.name} to use the call button.`
+      : '';
+  const [toast, setToast] = useState('');
+  const hideToast = useCallback(() => setToast(''), []);
+  const insets = useSafeAreaInsets();
+  // A copy of Home's banner preview, drawn exactly over it and above the dimmed backdrop, so
+  // changes show at full brightness as they're made.
+  const bannerCopy =
+    section === 'appearance' && py && px && pw ? (
+      <View style={{ position: 'absolute', left: Number(px), top: Number(py), width: Number(pw) }}>
+        <ActivityBannerPreview
+          presets={activityShortcuts(app.presets, prefs.activityPresetOrder)}
+          design={prefs.lockScreenStyle}
+          showLabels={prefs.activityButtonLabels}
+          showCall={prefs.activityCallButton && canCall}
+          width={Number(pw)}
+          onReorder={() => {}}
+          onAppearance={() => {}}
+          onDragChange={() => {}}
+        />
+      </View>
+    ) : undefined;
   return (
     <Screen
       modal
       overlaySheet={Platform.OS !== 'web'}
+      sheetFrom={from === 'top' ? 'top' : 'bottom'}
+      sheetMaxHeight={room ? Number(room) : undefined}
+      aboveBackdrop={bannerCopy}
+      overlay={
+        <Toast
+          text={toast}
+          onHide={hideToast}
+          tone="warning"
+          dismissable
+          top={(from === 'top' ? insets.top : 0) + 12}
+        />
+      }
       fitContent={Platform.OS !== 'web' && fitContent}
       title={title}
     >
@@ -358,6 +411,7 @@ export default function SettingsSheet() {
                   'Lock your phone now. The fallback notification appears in 10 seconds.',
                 ],
                 ['Open from Live Activity', async () => router.push('/check-in?from=reminder'), ''],
+                ['Paywall with trial', async () => router.push('/paywall?preview=trial'), ''],
               ] as const
             ).map(([label, fn, done]) => (
               <Chip
@@ -456,6 +510,35 @@ export default function SettingsSheet() {
                   })
                 }
               />
+            }
+          />
+          <Row
+            title="Call button"
+            subtitle="Add a button to call your person from the banner"
+            right={
+              // Off and greyed out until there's a number to call. A disabled switch swallows
+              // taps on iOS, so a cover over it hears the tap and says what's missing.
+              <View>
+                <Toggle
+                  label="Call button"
+                  disabled={!!callUnavailable}
+                  value={prefs.activityCallButton && !callUnavailable}
+                  onChange={(activityCallButton) =>
+                    run(async () => {
+                      await app.updatePrefs({ activityCallButton });
+                      await reconcileReminder();
+                    })
+                  }
+                />
+                {!!callUnavailable && (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Call button unavailable. ${callUnavailable}`}
+                    onPress={() => setToast(callUnavailable)}
+                    style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }}
+                  />
+                )}
+              </View>
             }
           />
         </>

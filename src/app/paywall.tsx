@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Linking, Platform, Pressable, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import type { PurchasesPackage } from 'react-native-purchases';
-import { Bell, Check, MapPin, Smartphone, type LucideIcon } from 'lucide-react-native';
-import { CrownArt, CrownBadge } from '@/components/paywall-art';
+import { Bell, Check, Smartphone, Zap, type LucideIcon } from 'lucide-react-native';
+import { PlusHeroArt } from '@/components/paywall-art';
 import { Button, Notice, Screen, Txt } from '@/components/ui';
 import { acceptCustomerInfo, setQaBypass, useAccess } from '@/lib/access';
 import { errorMessage } from '@/lib/domain';
@@ -12,30 +12,10 @@ import { entitlement, purchases } from '@/lib/purchases';
 import { useApp } from '@/state/app';
 
 type Plan = 'monthly' | 'yearly';
-const FEATURES: {
-  icon: LucideIcon;
-  tint: 'mint' | 'lavender' | 'cream';
-  title: string;
-  body: string;
-}[] = [
-  {
-    icon: MapPin,
-    tint: 'mint',
-    title: 'Smart Check-Ins',
-    body: 'Arrive notices when you leave and reminds you to check in.',
-  },
-  {
-    icon: Smartphone,
-    tint: 'lavender',
-    title: 'Lock Screen shortcuts',
-    body: 'Check in from your Lock Screen in a tap.',
-  },
-  {
-    icon: Bell,
-    tint: 'cream',
-    title: 'Gentle reminders',
-    body: 'Friendly nudges so you never forget.',
-  },
+const FEATURES: { icon: LucideIcon; tint: 'mint' | 'lavender' | 'cream'; title: string }[] = [
+  { icon: Smartphone, tint: 'lavender', title: 'Lock Screen check-ins' },
+  { icon: Bell, tint: 'cream', title: 'Smart reminders' },
+  { icon: Zap, tint: 'mint', title: 'Fully customizable' },
 ];
 
 /**
@@ -47,6 +27,10 @@ export default function Paywall() {
   const app = useApp();
   const { colors, isDark } = app;
   const access = useAccess();
+  // Developer tests → "Paywall with trial": shows the paywall as a first-time subscriber sees
+  // it, with a 7-day free trial on both plans. Development builds only; nothing can be bought.
+  const { preview } = useLocalSearchParams<{ preview?: string }>();
+  const previewTrial = __DEV__ && preview === 'trial';
   const [packages, setPackages] = useState<Record<Plan, PurchasesPackage | null>>({
     monthly: null,
     yearly: null,
@@ -80,14 +64,16 @@ export default function Paywall() {
   // Once Arrive Plus is active (bought, restored, or renewed elsewhere), on to Home.
   // (The web preview has no store and isn't gated, so the paywall stays put there to be seen.)
   useEffect(() => {
-    if (access === 'active' && Platform.OS !== 'web') router.replace('/');
-  }, [access]);
+    if (access === 'active' && Platform.OS !== 'web' && !previewTrial) router.replace('/');
+  }, [access, previewTrial]);
 
   const selected = packages[plan];
-  const trial = selected && trialEligible[plan] ? trialLabel(selected.product.introPrice) : null;
-  const anyTrial =
-    (packages.yearly && trialEligible.yearly && trialLabel(packages.yearly.product.introPrice)) ||
-    (packages.monthly && trialEligible.monthly && trialLabel(packages.monthly.product.introPrice));
+  const trialFor = (p: Plan) => {
+    const pkg = packages[p];
+    if (previewTrial) return '7-day free trial';
+    return pkg && trialEligible[p] ? trialLabel(pkg.product.introPrice) : null;
+  };
+  const trial = selected ? trialFor(plan) : null;
   const savings =
     packages.monthly && packages.yearly
       ? yearlySavings(packages.monthly.product.price, packages.yearly.product.price)
@@ -101,6 +87,7 @@ export default function Paywall() {
   const canBuy = !!selected && (!!privacyUrl || __DEV__);
 
   async function buy() {
+    if (previewTrial) return setNote('This is a preview, so nothing was bought.');
     if (!selected || busy) return;
     setBusy(true);
     setError('');
@@ -158,7 +145,7 @@ export default function Paywall() {
       footer={
         <View style={{ gap: 10 }}>
           <Button
-            label={trial ? 'Start free trial' : 'Subscribe'}
+            label={trial ? 'Start Free Trial' : 'Subscribe'}
             onPress={() => void buy()}
             loading={busy}
             disabled={!canBuy}
@@ -169,103 +156,83 @@ export default function Paywall() {
             {!!privacyUrl && (
               <FooterLink label="Privacy" onPress={() => void Linking.openURL(privacyUrl)} />
             )}
-            {__DEV__ && (
-              <FooterLink label="QA bypass" onPress={() => void setQaBypass(true)} muted />
-            )}
+            {__DEV__ &&
+              (previewTrial ? (
+                <FooterLink
+                  label="Close preview"
+                  onPress={() => router.setParams({ preview: undefined })}
+                  muted
+                />
+              ) : (
+                <>
+                  <FooterLink
+                    label="Preview trial"
+                    onPress={() => router.setParams({ preview: 'trial' })}
+                    muted
+                  />
+                  <FooterLink label="QA bypass" onPress={() => void setQaBypass(true)} muted />
+                </>
+              ))}
           </View>
         </View>
       }
     >
-      <CrownArt />
-      <View style={{ alignItems: 'center', marginTop: 8 }}>
-        <Txt weight="display" style={{ fontSize: 32, lineHeight: 39, textAlign: 'center' }}>
-          Stay in the loop,
-        </Txt>
-        <Txt weight="display" style={{ fontSize: 32, lineHeight: 39, textAlign: 'center' }}>
-          effortlessly.
+      <PlusHeroArt />
+      <View style={{ alignItems: 'center', marginTop: 4 }}>
+        <Txt weight="display" style={{ fontSize: 38, lineHeight: 46, textAlign: 'center' }}>
+          Arrive Plus
         </Txt>
         <Txt
           tone="muted"
-          style={{ fontSize: 15, lineHeight: 22, textAlign: 'center', marginTop: 16 }}
+          style={{ fontSize: 16, lineHeight: 22, textAlign: 'center', marginTop: 4 }}
         >
-          Arrive Plus helps you check in faster and smarter, so your people are always in the know.
+          Everything you need to check in faster.
         </Txt>
       </View>
 
-      <View style={{ gap: 14, marginTop: 22, paddingHorizontal: 6 }}>
-        {FEATURES.map(({ icon: Icon, tint, title, body }) => (
-          <View key={title} style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-            <View
-              style={{
-                width: 46,
-                height: 46,
-                borderRadius: 14,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: isDark ? featureTint[tint].dark : featureTint[tint].bg,
-              }}
-            >
-              <Icon size={21} color={featureTint[tint].ink} strokeWidth={2} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Txt weight="rounded" style={{ fontSize: 16, lineHeight: 21 }}>
+      <View style={{ flexDirection: 'row', marginTop: 24 }}>
+        {FEATURES.map(({ icon: Icon, tint, title }, i) => (
+          <View key={title} style={{ flex: 1, flexDirection: 'row' }}>
+            {i > 0 && (
+              <View style={{ width: 1, marginVertical: 8, backgroundColor: colors.border }} />
+            )}
+            <View style={{ flex: 1, alignItems: 'center', gap: 10, paddingHorizontal: 6 }}>
+              <View
+                style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: 16,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: isDark ? featureTint[tint].dark : featureTint[tint].bg,
+                }}
+              >
+                <Icon size={24} color={featureTint[tint].ink} strokeWidth={1.8} />
+              </View>
+              <Txt weight="bold" style={{ fontSize: 15, lineHeight: 20, textAlign: 'center' }}>
                 {title}
-              </Txt>
-              <Txt tone="muted" style={{ fontSize: 13, lineHeight: 18 }}>
-                {body}
               </Txt>
             </View>
           </View>
         ))}
       </View>
 
-      {!!anyTrial && (
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 14,
-            marginTop: 22,
-            padding: 16,
-            borderRadius: 20,
-            borderWidth: 1,
-            borderColor: colors.border,
-            backgroundColor: colors.softGreen,
-          }}
-        >
-          <CrownBadge />
-          <View style={{ width: 1, alignSelf: 'stretch', backgroundColor: colors.border }} />
-          <View>
-            <Txt weight="display" style={{ fontSize: 22, lineHeight: 28 }}>
-              {String(anyTrial).replace(/^./, (c) => c.toUpperCase())}
-            </Txt>
-            <Txt tone="muted" style={{ fontSize: 14 }}>
-              Cancel anytime.
-            </Txt>
-          </View>
-        </View>
-      )}
-
-      <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
-        <PlanCard
-          title="Monthly"
-          price={priceLine(packages.monthly, 'mo')}
-          selected={plan === 'monthly'}
-          disabled={!packages.monthly}
-          onPress={() => setPlan('monthly')}
-        />
+      <View style={{ gap: 12, marginTop: 24 }}>
         <PlanCard
           title="Yearly"
           price={priceLine(packages.yearly, 'yr')}
-          detail={
-            packages.yearly?.product.pricePerMonthString
-              ? `Just ${packages.yearly.product.pricePerMonthString}/mo${savings ? ` (${savings}% off)` : ''}`
-              : undefined
-          }
-          badge={savings ? 'Best value' : undefined}
+          badge={trialFor('yearly') ?? (savings ? `Save ${savings}%` : undefined)}
           selected={plan === 'yearly'}
           disabled={!packages.yearly}
           onPress={() => setPlan('yearly')}
+        />
+        <PlanCard
+          title="Monthly"
+          price={priceLine(packages.monthly, 'mo')}
+          badge={trialFor('monthly') ?? undefined}
+          selected={plan === 'monthly'}
+          disabled={!packages.monthly}
+          onPress={() => setPlan('monthly')}
         />
       </View>
 
@@ -349,7 +316,6 @@ async function fetchPlans(): Promise<Plans> {
 function PlanCard({
   title,
   price,
-  detail,
   badge,
   selected,
   disabled,
@@ -357,70 +323,73 @@ function PlanCard({
 }: {
   title: string;
   price: string;
-  detail?: string;
   badge?: string;
   selected: boolean;
   disabled: boolean;
   onPress: () => void;
 }) {
-  const { colors } = useApp();
+  const { colors, isDark } = useApp();
   return (
     <Pressable
       accessibilityRole="radio"
-      accessibilityLabel={`${title}, ${price}`}
+      accessibilityLabel={`${title}, ${price}${badge ? `, ${badge}` : ''}`}
       accessibilityState={{ selected, disabled }}
       aria-checked={selected}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => ({
-        flex: 1,
-        padding: 14,
-        borderRadius: 18,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 14,
+        // The selected border is 1pt thicker; the padding gives that point back, so the card
+        // and its contents stay exactly where they are as the selection moves.
+        paddingVertical: selected ? 15 : 16,
+        paddingHorizontal: selected ? 17 : 18,
+        borderRadius: 20,
         borderWidth: selected ? 2 : 1,
         borderColor: selected ? colors.green : colors.border,
         backgroundColor: selected ? colors.softGreen : colors.surface,
         opacity: disabled ? 0.5 : pressed ? 0.8 : 1,
-        gap: 4,
       })}
     >
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <View
-          style={{
-            width: 22,
-            height: 22,
-            borderRadius: 11,
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderWidth: selected ? 0 : 1.5,
-            borderColor: colors.muted,
-            backgroundColor: selected ? colors.green : 'transparent',
-          }}
-        >
-          {selected && <Check size={14} color="#FFFFFF" strokeWidth={3} />}
-        </View>
-        <Txt weight="rounded" style={{ fontSize: 17, lineHeight: 22 }}>
+      <View
+        style={{
+          width: 28,
+          height: 28,
+          borderRadius: 14,
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderWidth: selected ? 0 : 1.5,
+          borderColor: colors.muted,
+          backgroundColor: selected ? colors.green : 'transparent',
+        }}
+      >
+        {selected && <Check size={16} color="#FFFFFF" strokeWidth={3} />}
+      </View>
+      <View style={{ flex: 1 }}>
+        <Txt weight="display" style={{ fontSize: 20, lineHeight: 25 }}>
           {title}
         </Txt>
-        {!!badge && (
-          <View
-            style={{
-              paddingHorizontal: 8,
-              paddingVertical: 2,
-              borderRadius: 10,
-              backgroundColor: '#F6E3A9',
-            }}
-          >
-            <Txt weight="medium" style={{ fontSize: 11, lineHeight: 15, color: '#6B5418' }}>
-              {badge}
-            </Txt>
-          </View>
-        )}
-      </View>
-      <Txt style={{ fontSize: 15, lineHeight: 21, marginLeft: 30 }}>{price}</Txt>
-      {!!detail && (
-        <Txt tone="muted" style={{ fontSize: 11, lineHeight: 15, marginLeft: 30 }}>
-          {detail}
+        <Txt tone="muted" style={{ fontSize: 14, lineHeight: 19 }}>
+          {price}
         </Txt>
+      </View>
+      {!!badge && (
+        <View
+          style={{
+            paddingHorizontal: 12,
+            paddingVertical: 7,
+            borderRadius: 14,
+            backgroundColor: isDark ? '#4A3F22' : '#F6E3A9',
+          }}
+        >
+          <Txt
+            weight="bold"
+            style={{ fontSize: 13, lineHeight: 17, color: isDark ? '#F2D071' : '#5E4A14' }}
+          >
+            {badge.replace(/^./, (c) => c.toUpperCase())}
+          </Txt>
+        </View>
       )}
     </Pressable>
   );
@@ -442,7 +411,7 @@ function FooterLink({
       onPress={onPress}
       style={{ minHeight: 32, justifyContent: 'center' }}
     >
-      <Txt tone={muted ? 'muted' : 'green'} weight="medium" style={{ fontSize: 13 }}>
+      <Txt tone="muted" weight="medium" style={{ fontSize: 13, opacity: muted ? 0.6 : 1 }}>
         {label}
       </Txt>
     </Pressable>

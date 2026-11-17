@@ -1,124 +1,131 @@
 import { View, useWindowDimensions } from 'react-native';
-import Svg, { Circle, Defs, Ellipse, G, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
-import { Check } from 'lucide-react-native';
+import Svg, { Circle, Defs, Ellipse, G, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 import { Txt } from '@/components/ui';
 import { useApp } from '@/state/app';
 
-const crown = 'M14 40l-4-22 11 9 9-15 9 15 11-9-4 22z';
+// A rounded crown, centred on (0, 0).
+const crown = 'M-26 16L-30 -12L-14 0L0 -20L14 0L30 -12L26 16Z';
+const sparkle = (size: number) =>
+  `M0 ${-size}C${size * 0.18} ${-size * 0.18} ${size * 0.18} ${-size * 0.18} ${size} 0C${size * 0.18} ${size * 0.18} ${size * 0.18} ${size * 0.18} 0 ${size}C${-size * 0.18} ${size * 0.18} ${-size * 0.18} ${size * 0.18} ${-size} 0C${-size * 0.18} ${-size * 0.18} ${-size * 0.18} ${-size * 0.18} 0 ${-size}Z`;
+const leaf = 'M0 0C4 -9 14 -12 22 -9C19 -1 10 3 0 0Z';
 
-/** The paywall's hero: a glowing crown tile, an orbit, sparkles, and what Plus includes. */
-export function CrownArt() {
-  const { colors } = useApp();
-  const { width } = useWindowDimensions();
-  const w = Math.min(360, width - 32);
-  const h = (w * 210) / 360;
-  const chips = ['Smart Check-Ins', 'Lock Screen shortcuts', 'Gentle reminders'];
+/** A sprig of leaves growing from (x, y), leaning by `lean` degrees. */
+function Sprig({
+  x,
+  y,
+  lean,
+  flip,
+  color,
+}: {
+  x: number;
+  y: number;
+  lean: number;
+  flip?: boolean;
+  color: string;
+}) {
+  const s = flip ? -1 : 1;
   return (
-    <View style={{ width: w, height: h, alignSelf: 'center' }}>
-      <Svg width={w} height={h} viewBox="0 0 360 210" style={{ position: 'absolute' }}>
-        <Defs>
-          <RadialGradient id="glow" cx="50%" cy="50%" r="50%">
-            <Stop offset="0" stopColor="#E3EED9" stopOpacity="1" />
-            <Stop offset="1" stopColor="#E3EED9" stopOpacity="0" />
-          </RadialGradient>
-          <RadialGradient id="tile" cx="40%" cy="30%" r="80%">
-            <Stop offset="0" stopColor="#FFF6DD" />
-            <Stop offset="1" stopColor="#F7E2A6" />
-          </RadialGradient>
-        </Defs>
-        <Ellipse cx="185" cy="120" rx="185" ry="90" fill="url(#glow)" />
-        <Ellipse cx="200" cy="150" rx="150" ry="40" fill="#DDE9D1" opacity="0.7" />
-        {/* Orbit around the tile */}
-        <Path
-          d="M30 128c10-40 170-70 210-40"
-          stroke="#B9D3AD"
-          strokeWidth="6"
-          strokeLinecap="round"
-          fill="none"
-          opacity="0.7"
-        />
-        {/* Crown tile */}
-        <G>
-          <Rect x="54" y="42" width="112" height="112" rx="30" fill="#FFFFFF" opacity="0.6" />
-          <Rect x="60" y="48" width="100" height="100" rx="26" fill="url(#tile)" />
-          <G x="83" y="62" scale="1.1">
-            <Path d={crown} fill="#E9B23F" />
-            <Circle cx="10" cy="18" r="3.5" fill="#E9B23F" />
-            <Circle cx="30" cy="11" r="3.5" fill="#E9B23F" />
-            <Circle cx="50" cy="18" r="3.5" fill="#E9B23F" />
-          </G>
-        </G>
-        {/* Sparkles */}
-        <G stroke="#EDB24E" strokeWidth="4" strokeLinecap="round">
-          <Path d="M100 18l4 14" />
-          <Path d="M124 10l-2 15" />
-          <Path d="M146 20l-8 10" />
-        </G>
-        <Path d="M30 40l3 7 7 3-7 3-3 7-3-7-7-3 7-3z" fill="#EDB24E" />
-        <Path
-          d="M340 150l2.5 5.5 5.5 2.5-5.5 2.5-2.5 5.5-2.5-5.5-5.5-2.5 5.5-2.5z"
-          fill="#EDB24E"
-        />
-        <Path d="M52 180l2 4.5 4.5 2-4.5 2-2 4.5-2-4.5-4.5-2 4.5-2z" fill="#FFFFFF" />
-      </Svg>
-      {/* What's included, as little tags */}
-      <View style={{ position: 'absolute', right: 0, top: h * 0.12, gap: 8 }}>
-        {chips.map((label, i) => (
-          <View
-            key={label}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 8,
-              paddingVertical: 8,
-              paddingHorizontal: 12,
-              borderRadius: 12,
-              backgroundColor: colors.surface,
-              marginRight: i === 1 ? 12 : 0,
-              transform: [{ rotate: `${4 - i}deg` }],
-              shadowColor: '#000',
-              shadowOpacity: 0.06,
-              shadowRadius: 8,
-              shadowOffset: { width: 0, height: 3 },
-            }}
-          >
-            <View
-              style={{
-                width: 18,
-                height: 18,
-                borderRadius: 9,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: '#5FA36E',
-              }}
-            >
-              <Check size={11} color="#FFFFFF" strokeWidth={3} />
-            </View>
-            <Txt weight="medium" style={{ fontSize: 12.5, lineHeight: 17 }}>
-              {label}
-            </Txt>
-          </View>
-        ))}
-      </View>
-    </View>
+    <G transform={`translate(${x} ${y}) rotate(${lean}) scale(${s} 1)`}>
+      <Path
+        d="M0 0C-2 -18 -6 -34 -14 -50"
+        stroke={color}
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        fill="none"
+      />
+      <G transform="translate(-3 -16) rotate(-30)">
+        <Path d={leaf} fill={color} />
+      </G>
+      <G transform="translate(-6 -28) rotate(200) scale(1 -1)">
+        <Path d={leaf} fill={color} />
+      </G>
+      <G transform="translate(-10 -40) rotate(-50)">
+        <Path d={leaf} fill={color} />
+      </G>
+      <G transform="translate(-14 -50) rotate(-100) scale(0.85)">
+        <Path d={leaf} fill={color} />
+      </G>
+    </G>
   );
 }
 
-/** A small crown tile with a few sparkles, for the free trial card. */
-export function CrownBadge() {
+/** The paywall's hero: a glowing crown tile among leaves, labelled "Arrive Plus". */
+export function PlusHeroArt() {
+  const { isDark } = useApp();
+  const { width } = useWindowDimensions();
+  const w = Math.min(340, width - 32);
+  const h = (w * 210) / 340;
+  const ground = isDark ? '#22342A' : '#E6F0DE';
+  const bush = isDark ? '#2C4434' : '#D3E6C8';
+  const bushDeep = isDark ? '#335040' : '#C2DBB5';
+  const leafColor = isDark ? '#5E9A6C' : '#8FBF8A';
+  const gold = '#F2BE4A';
   return (
-    <Svg width={58} height={52} viewBox="0 0 58 52">
-      <G stroke="#EDB24E" strokeWidth="2.6" strokeLinecap="round">
-        <Path d="M10 4l3 7" />
-        <Path d="M2 14l7 3" />
-      </G>
-      <Rect x="14" y="10" width="42" height="40" rx="12" fill="#FAEBC2" />
-      <G x="20" y="14" scale="0.5">
-        <Path d={crown} fill="#E9B23F" />
-        <Circle cx="10" cy="18" r="3.5" fill="#E9B23F" />
-        <Circle cx="30" cy="11" r="3.5" fill="#E9B23F" />
-        <Circle cx="50" cy="18" r="3.5" fill="#E9B23F" />
-      </G>
-    </Svg>
+    <View style={{ width: w, height: h, alignSelf: 'center' }}>
+      <Svg width={w} height={h} viewBox="0 0 340 210">
+        <Defs>
+          <LinearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor="#FFF5DC" />
+            <Stop offset="1" stopColor="#F8DC97" />
+          </LinearGradient>
+        </Defs>
+        <Ellipse cx="170" cy="182" rx="150" ry="20" fill={ground} />
+        {/* Bushes behind the tile */}
+        <Circle cx="104" cy="168" r="20" fill={bush} />
+        <Circle cx="124" cy="160" r="22" fill={bushDeep} />
+        <Circle cx="218" cy="160" r="22" fill={bushDeep} />
+        <Circle cx="240" cy="168" r="20" fill={bush} />
+        <Sprig x={100} y={168} lean={-18} color={leafColor} />
+        <Sprig x={244} y={164} lean={14} flip color={leafColor} />
+        {/* Rays above the tile */}
+        <G stroke={gold} strokeWidth="5" strokeLinecap="round">
+          <Path d="M170 6V22" />
+          <Path d="M136 16L144 29" />
+          <Path d="M204 16L196 29" />
+        </G>
+        <Path transform="translate(54 68)" d={sparkle(10)} fill={gold} />
+        <Path transform="translate(296 128)" d={sparkle(8)} fill={gold} />
+        {/* Crown tile */}
+        <Rect
+          x="114"
+          y="36"
+          width="112"
+          height="112"
+          rx="32"
+          fill="#FFFFFF"
+          opacity={isDark ? 0.18 : 0.85}
+        />
+        <Rect x="122" y="44" width="96" height="96" rx="26" fill="url(#tile)" />
+        <Path
+          transform="translate(170 94)"
+          d={crown}
+          fill={gold}
+          stroke={gold}
+          strokeWidth="6"
+          strokeLinejoin="round"
+        />
+      </Svg>
+      {/* The name, on a pill across the bottom of the tile */}
+      <View
+        style={{
+          position: 'absolute',
+          top: (h * 134) / 210,
+          alignSelf: 'center',
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 6,
+          paddingHorizontal: 14,
+          paddingVertical: 6,
+          borderRadius: 16,
+          backgroundColor: '#2F6E4F',
+        }}
+      >
+        <Txt style={{ color: gold, fontSize: 11 }}>✦</Txt>
+        <Txt weight="bold" style={{ color: '#FFFFFF', fontSize: 15, lineHeight: 20 }}>
+          Arrive Plus
+        </Txt>
+        <Txt style={{ color: gold, fontSize: 11 }}>✦</Txt>
+      </View>
+    </View>
   );
 }

@@ -52,6 +52,11 @@ export type ReminderActivityProps = {
    * "Coming" (heading home), shown first. Never for other triggers.
    */
   coming?: { url: string };
+  /**
+   * Only when Appearance → Call button is on and the person has a number: opens Arrive, which
+   * asks iOS to call them. iOS confirms every call, so nothing is dialled from the banner alone.
+   */
+  call?: { url: string; name: string };
   /** iOS 17+: ✕ runs in the background. Before that, it opens Arrive to end the reminder. */
   interactive: boolean;
 };
@@ -105,6 +110,20 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
     </Button>
   ) : (
     <Link destination={props.dismissUrl}>{dismissLook}</Link>
+  );
+  const call = props.call && !done && (
+    <Link destination={props.call.url} modifiers={[accessibilityLabel(`Call ${props.call.name}`)]}>
+      <Image
+        systemName="phone.fill"
+        color={glass ? '#EAF2E7' : green}
+        size={12}
+        modifiers={[
+          frame({ width: 28, height: 28 }),
+          background(glass ? '#287B5ACC' : dark ? '#2B4332' : '#E4F0E8'),
+          clipShape('circle'),
+        ]}
+      />
+    </Link>
   );
   const checkIn = (
     <Link
@@ -174,6 +193,7 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
         </HStack>
       )}
       {!done && !places.length && checkIn}
+      {call}
       {!done && dismiss}
     </HStack>
   );
@@ -182,6 +202,10 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
       {look}
     </Link>
   );
+  // Drawn exactly as the app draws it: `size` is the Lucide icon's size in Arrive (see
+  // DraggableIcon in src/components/activity-banner-preview.tsx). The exported images pad the
+  // 24-unit glyph to 28 units (scripts/create-widget-icons.cjs), so the frame is scaled up by
+  // 28/24 to give the same glyph size and the same 1.6 line weight.
   const presetIcon = (p: ReminderPlace, size: number, color: string) =>
     props.exactIcons ? (
       <Image
@@ -190,16 +214,18 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
         modifiers={[
           resizable(),
           aspectRatio({ contentMode: 'fit' }),
-          frame({ width: size, height: size }),
+          frame({ width: (size * 28) / 24, height: (size * 28) / 24 }),
         ]}
       />
     ) : (
       <Image systemName={p.symbol} color={color} size={size} />
     );
+  // The app puts the label 3pt under the glyph; the image's padding already covers part of that.
+  const labelGap = (size: number) => (props.exactIcons ? 3 - size / 12 : 3);
   // Light card: a rounded, tinted tile.
   const tileLook = (p: ReminderPlace, showLabel: boolean) => (
     <VStack
-      spacing={showLabel ? 3 : 0}
+      spacing={showLabel ? labelGap(20) : 0}
       modifiers={[
         // Two frames: expo-ui ignores maxWidth when a height is given in the same frame.
         frame({ maxWidth: fill }),
@@ -208,7 +234,7 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
         clipShape('roundedRectangle', 15),
       ]}
     >
-      {presetIcon(p, showLabel ? 19 : 22, dark ? p.bg : p.ink)}
+      {presetIcon(p, 20, dark ? p.bg : p.ink)}
       {showLabel && (
         <Text
           modifiers={[
@@ -226,7 +252,7 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
   // Glass uses the same roomy tile shape as Soft, with translucent accent colors.
   const glassTileLook = (p: ReminderPlace, showLabel: boolean) => (
     <VStack
-      spacing={showLabel ? 3 : 0}
+      spacing={showLabel ? labelGap(21) : 0}
       modifiers={[
         frame({ maxWidth: fill }),
         frame({ height: 58 }),
@@ -234,7 +260,7 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
         clipShape('roundedRectangle', 15),
       ]}
     >
-      {presetIcon(p, showLabel ? 19 : 22, p.bg)}
+      {presetIcon(p, 21, p.bg)}
       {showLabel && (
         <Text
           modifiers={[
@@ -356,7 +382,14 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
         {done ? 'Check-in sent' : 'Where did you make it to?'}
       </Text>
     ),
-    expandedTrailing: done ? undefined : dismiss,
+    expandedTrailing: done ? undefined : call ? (
+      <HStack spacing={8}>
+        {call}
+        {dismiss}
+      </HStack>
+    ) : (
+      dismiss
+    ),
     // The Dynamic Island is always dark, so it uses the round buttons in both designs.
     expandedBottom: done ? (
       <Text modifiers={[font({ size: 13 }), foregroundStyle('#ADBFB1')]}>

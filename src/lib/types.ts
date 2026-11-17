@@ -123,6 +123,8 @@ export type Preferences = {
   activityPresetOrder: string[];
   /** Show check-in names with the shortcut icons in the Lock Screen banner. */
   activityButtonLabels: boolean;
+  /** Add a button to the Lock Screen banner that calls the reminder's person. */
+  activityCallButton: boolean;
   pausedUntil: number;
   onboardingDone: boolean;
   theme: 'system' | 'light' | 'dark';
@@ -173,6 +175,7 @@ export const initialPreferences: Preferences = {
   lockScreenStyle: 'soft',
   activityPresetOrder: [],
   activityButtonLabels: true,
+  activityCallButton: false,
   pausedUntil: 0,
   onboardingDone: false,
   theme: 'system',

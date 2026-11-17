@@ -2,7 +2,6 @@ import { presetIcons } from '@/design/icons';
 import { accents, fonts } from '@/design/theme';
 import { initials } from '@/lib/people';
 import type { Person, Preset } from '@/lib/types';
-import { reportSheetClosing, reportSheetHeight } from '@/lib/sheet-height';
 import { useApp } from '@/state/app';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
@@ -24,6 +23,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Switch,
   Text,
@@ -47,7 +47,8 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 export function Txt({
   style,
   tone,
@@ -81,6 +82,9 @@ export function Screen({
   modal = false,
   fitContent = false,
   overlaySheet = false,
+  sheetFrom = 'bottom',
+  sheetMaxHeight,
+  aboveBackdrop,
   action,
   scroll = true,
   scrollEnabled = true,
@@ -98,8 +102,17 @@ export function Screen({
   modal?: boolean;
   /** Lets a native form sheet measure short content instead of filling its maximum height. */
   fitContent?: boolean;
-  /** Full-width, bottom-attached sheet used by settings routes. */
+  /** Full-width sheet used by settings routes. Tapping outside it closes it. */
   overlaySheet?: boolean;
+  /** Which edge the overlay sheet is attached to and slides in from. */
+  sheetFrom?: 'bottom' | 'top';
+  /** The tallest the overlay sheet may be, in points; its content scrolls beyond that. */
+  sheetMaxHeight?: number;
+  /**
+   * Drawn over the overlay sheet's dimmed backdrop but under the sheet, so it isn't dimmed (for
+   * example, a preview of what the sheet changes). Taps on it still close the sheet.
+   */
+  aboveBackdrop?: React.ReactNode;
   action?: React.ReactNode;
   scroll?: boolean;
   scrollEnabled?: boolean;
@@ -116,6 +129,7 @@ export function Screen({
 }) {
   const { colors } = useApp();
   const windowHeight = useWindowDimensions().height;
+  const insets = useSafeAreaInsets();
   const sheetProgress = useSharedValue(0);
   const backdropProgress = useSharedValue(0);
   const closingSheet = React.useRef(false);
@@ -137,7 +151,6 @@ export function Screen({
     }
     if (closingSheet.current) return;
     closingSheet.current = true;
-    reportSheetClosing();
     backdropProgress.set(withTiming(0, { duration: 210, easing: Easing.inOut(Easing.cubic) }));
     sheetProgress.set(
       withTiming(0, { duration: 300, easing: Easing.bezier(0.4, 0, 1, 1) }, (finished) => {
@@ -148,13 +161,14 @@ export function Screen({
   const backdropAnimatedStyle = useAnimatedStyle(() => ({
     opacity: backdropProgress.get(),
   }));
+  const fromTop = overlaySheet && sheetFrom === 'top';
   const sheetAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: (1 - sheetProgress.get()) * windowHeight }],
+    transform: [{ translateY: (1 - sheetProgress.get()) * windowHeight * (fromTop ? -1 : 1) }],
   }));
   const sheet = modal;
   const content = (
     <View style={[styles.page, sheet && { paddingTop: 18 }, fitContent && { paddingBottom: 24 }]}>
-      {sheet && Platform.OS === 'ios' && (
+      {sheet && Platform.OS === 'ios' && !fromTop && (
         <View
           style={{
             alignSelf: 'center',
@@ -207,55 +221,100 @@ export function Screen({
       {children}
     </View>
   );
-  const body =
-    scroll && !fitContent ? (
-      // Keeps the focused field KEYBOARD_GAP above the keyboard on iOS and Android,
-      // moving with the keyboard as it slides (Expo's recommended approach).
-      <KeyboardAwareScrollView
-        ref={scrollRef}
-        onScroll={onScrollY ? (e) => onScrollY(e.nativeEvent.contentOffset.y) : undefined}
-        scrollEventThrottle={16}
-        bottomOffset={KEYBOARD_GAP}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-        contentContainerStyle={{ flexGrow: 1 }}
-        showsVerticalScrollIndicator={false}
-        decelerationRate="fast"
-        scrollEnabled={scrollEnabled}
-      >
-        {content}
-      </KeyboardAwareScrollView>
-    ) : (
-      content
-    );
+  const body = fromTop ? (
+    // Sized to its content, up to sheetMaxHeight; anything taller scrolls.
+    <ScrollView
+      style={{ flexGrow: 0 }}
+      bounces={false}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+    >
+      {content}
+    </ScrollView>
+  ) : scroll && !fitContent ? (
+    // Keeps the focused field KEYBOARD_GAP above the keyboard on iOS and Android,
+    // moving with the keyboard as it slides (Expo's recommended approach).
+    <KeyboardAwareScrollView
+      ref={scrollRef}
+      onScroll={onScrollY ? (e) => onScrollY(e.nativeEvent.contentOffset.y) : undefined}
+      scrollEventThrottle={16}
+      bottomOffset={KEYBOARD_GAP}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+      contentContainerStyle={{ flexGrow: 1 }}
+      showsVerticalScrollIndicator={false}
+      decelerationRate="fast"
+      scrollEnabled={scrollEnabled}
+    >
+      {content}
+    </KeyboardAwareScrollView>
+  ) : (
+    content
+  );
   if (overlaySheet) {
     return (
-      <View style={styles.overlaySheetRoot}>
-        <Animated.View
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
+      <View style={[styles.overlaySheetRoot, fromTop && { justifyContent: 'flex-start' }]}>
+        {/* Tapping anywhere outside the sheet closes it. */}
+        <AnimatedPressable
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+          onPress={closeSheet}
           style={[styles.overlaySheetBackdrop, backdropAnimatedStyle]}
         />
+        {aboveBackdrop && (
+          // Fades in with the backdrop, so it eases over whatever it covers.
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.overlaySheetBackdrop,
+              { backgroundColor: 'transparent' },
+              backdropAnimatedStyle,
+            ]}
+          >
+            {aboveBackdrop}
+          </Animated.View>
+        )}
         <Animated.View
-          // Lets the screen underneath keep its content in view above the sheet.
-          onLayout={(e) => reportSheetHeight(e.nativeEvent.layout.height)}
           style={[
             styles.overlaySheet,
+            fromTop ? styles.overlaySheetTop : null,
             {
-              height: fitContent ? undefined : '92%',
-              maxHeight: '92%',
+              height: fitContent || fromTop ? undefined : '92%',
+              maxHeight: fromTop && sheetMaxHeight ? sheetMaxHeight : '92%',
               backgroundColor: colors.background,
             },
             sheetAnimatedStyle,
           ]}
         >
-          <SafeAreaView
-            edges={['left', 'right', 'bottom']}
-            style={{ flex: fitContent ? undefined : 1, backgroundColor: colors.background }}
+          {/* Padded by the screen's fixed safe-area insets. A SafeAreaView would measure where the
+              sheet is mid-slide (still off screen) and sometimes leave the top inset out. */}
+          <View
+            style={{
+              flex: fitContent || fromTop ? undefined : 1,
+              flexShrink: fromTop ? 1 : undefined,
+              paddingTop: fromTop ? insets.top : 0,
+              paddingBottom: fromTop ? 0 : insets.bottom,
+              paddingLeft: insets.left,
+              paddingRight: insets.right,
+              backgroundColor: colors.background,
+            }}
           >
             {body}
+            {fromTop && (
+              <View
+                style={{
+                  alignSelf: 'center',
+                  width: 38,
+                  height: 5,
+                  borderRadius: 3,
+                  backgroundColor: colors.border,
+                  marginTop: -14,
+                  marginBottom: 10,
+                }}
+              />
+            )}
             {overlay}
-          </SafeAreaView>
+          </View>
         </Animated.View>
       </View>
     );
@@ -1053,6 +1112,8 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 25,
     paddingTop: 22,
     paddingBottom: 36,
+    // Fills a short screen, so a flex spacer can push content to the bottom.
+    flexGrow: 1,
   },
   between: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -1067,6 +1128,13 @@ export const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     backgroundColor: 'rgba(25, 32, 29, 0.18)',
+  },
+  overlaySheetTop: {
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    shadowOffset: { width: 0, height: 5 },
   },
   overlaySheet: {
     width: '100%',

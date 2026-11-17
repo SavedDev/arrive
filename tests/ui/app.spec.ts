@@ -22,7 +22,8 @@ test('backendless home and native messaging unavailable on web are honest', asyn
   await expect(page.getByText('LAST CHECK-IN')).toHaveCount(0);
   await page.screenshot({ path: 'test-results/home-mobile.png', fullPage: true });
   await expect(page.getByText('Hold to edit', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Open Arrive Plus' })).toBeVisible();
+  // Everyone who reaches Home has Arrive Plus, so it isn't advertised there.
+  await expect(page.getByRole('button', { name: 'Open Arrive Plus' })).toHaveCount(0);
   await expect(page.getByText('Check in right from your Lock Screen.')).toHaveCount(0);
   await page.getByRole('button', { name: 'Send Gym', exact: true }).click();
   await expect(page.getByText('Add your person first', { exact: false })).toBeVisible();
@@ -143,6 +144,12 @@ test('settings sections and banner labels persist', async ({ page }) => {
   await page.getByRole('checkbox', { name: 'Saturday', exact: true }).click();
   await page.goto('/settings/appearance');
   await page.getByRole('switch', { name: 'Button labels', exact: true }).uncheck();
+  // With no number to call, the call button stays off, and tapping it says what's missing.
+  const callSwitch = page.getByRole('switch', { name: 'Call button', exact: true });
+  await expect(callSwitch).not.toBeChecked();
+  await expect(callSwitch).toBeDisabled();
+  await page.getByRole('button', { name: /Call button unavailable/ }).click();
+  await expect(page.getByText(/to use the call button\./)).toBeVisible();
   await expect(page.getByText('Theme', { exact: true })).toHaveCount(0);
   await page.goto('/settings/reminders');
   await page.reload();

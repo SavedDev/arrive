@@ -9,7 +9,7 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated';
 import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets';
-import { Leaf, Palette, Sun } from 'lucide-react-native';
+import { Leaf, Palette, Phone, Sun } from 'lucide-react-native';
 import { presetIcons } from '@/design/icons';
 import { accents } from '@/design/theme';
 import type { Preferences, Preset } from '@/lib/types';
@@ -166,10 +166,15 @@ function DraggableIcon({
   );
 }
 
+const CARD_PADDING = 14;
+const CARD_BORDER = 1;
+
 export function ActivityBannerPreview({
   presets,
   design,
   showLabels,
+  showCall = false,
+  width,
   onReorder,
   onAppearance,
   onDragChange,
@@ -177,6 +182,13 @@ export function ActivityBannerPreview({
   presets: Preset[];
   design: Preferences['lockScreenStyle'];
   showLabels: boolean;
+  /** The call button beside the banner's title, as in Appearance → Call button. */
+  showCall?: boolean;
+  /**
+   * The preview's width, when it's known before layout (Appearance's copy over Home's preview).
+   * The icons then start in their final places instead of settling into them.
+   */
+  width?: number;
   onReorder: (ids: string[]) => void;
   onAppearance: () => void;
   onDragChange: (dragging: boolean) => void;
@@ -185,7 +197,8 @@ export function ActivityBannerPreview({
   const ink = glass ? '#F0F5ED' : '#293D36';
   const muted = glass ? '#ADBFB1' : '#68766D';
   const [items, setItems] = useState(presets);
-  const [rowWidth, setRowWidth] = useState(0);
+  // The icon row sits inside the banner card's border and padding.
+  const [rowWidth, setRowWidth] = useState(width ? width - 2 * (CARD_BORDER + CARD_PADDING) : 0);
   const itemsRef = useRef(items);
   const draggingRef = useRef(false);
   const pendingReset = useRef(false);
@@ -260,28 +273,20 @@ export function ActivityBannerPreview({
           accessibilityRole="button"
           accessibilityLabel="Open banner appearance"
           onPress={onAppearance}
-          style={({ pressed }) => ({
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 6,
-            padding: 10,
-            opacity: pressed ? 0.6 : 1,
-          })}
+          hitSlop={6}
+          style={({ pressed }) => ({ padding: 8, opacity: pressed ? 0.6 : 1 })}
         >
-          <Palette size={16} color="#287B5A" />
-          <Txt weight="bold" style={{ color: '#287B5A', fontSize: 12 }}>
-            Appearance
-          </Txt>
+          <Palette size={24} color="#287B5A" />
         </Pressable>
       </View>
       <View
         style={{
           marginTop: 10,
           borderRadius: 28,
-          padding: 14,
+          padding: CARD_PADDING,
           gap: 10,
           backgroundColor: glass ? '#101A16' : '#FCFCF8',
-          borderWidth: 1,
+          borderWidth: CARD_BORDER,
           borderColor: glass ? '#34483C' : '#E8EBE4',
           shadowColor: '#000',
           shadowOpacity: 0.1,
@@ -303,6 +308,25 @@ export function ActivityBannerPreview({
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
               <Leaf size={14} color="#8DBE8F" fill="#8DBE8F" />
               <Sun size={19} color="#E9B949" fill="#E9B949" />
+            </View>
+          )}
+          {showCall && (
+            <View
+              accessibilityLabel="Call button"
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 14,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: glass ? '#287B5ACC' : '#E4F0E8',
+              }}
+            >
+              <Phone
+                size={13}
+                color={glass ? '#EAF2E7' : '#287B5A'}
+                fill={glass ? '#EAF2E7' : '#287B5A'}
+              />
             </View>
           )}
         </View>
