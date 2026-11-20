@@ -13,6 +13,7 @@ import {
   ChevronRight,
   Heart,
   MapPin,
+  Plus,
   Star,
   X,
   type LucideIcon,
@@ -30,12 +31,16 @@ import {
   TextInput,
   useWindowDimensions,
   View,
+  type ScrollViewInstance,
+  type StyleProp,
   type TextInputProps,
   type TextProps,
   type ViewStyle,
+  type TextInputInstance,
 } from 'react-native';
 import {
   KeyboardAwareScrollView,
+  KeyboardStickyView,
   type KeyboardAwareScrollViewRef,
 } from 'react-native-keyboard-controller';
 import Animated, {
@@ -47,7 +52,9 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
+import { FullWindowOverlay } from 'react-native-screens';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { shareSheetTapped, useSharing } from '@/lib/share';
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 export function Txt({
   style,
@@ -92,7 +99,9 @@ export function Screen({
   overlay,
   scrollRef,
   onScrollY,
+  onScrollRoom,
   footer,
+  message,
 }: {
   children: React.ReactNode;
   title?: string;
@@ -124,8 +133,16 @@ export function Screen({
   scrollRef?: React.Ref<KeyboardAwareScrollViewRef>;
   /** Hears how far the page is scrolled. */
   onScrollY?: (y: number) => void;
+  /** Hears how far the page can scroll at most (its content height minus what's in view). */
+  onScrollRoom?: (maxY: number) => void;
   /** Pinned to the bottom of the screen, below the scrolling page (for example, Continue). */
   footer?: React.ReactNode;
+  /**
+   * Feedback after something happens, such as "Restored" or an error: always a banner that drops
+   * in at the top for a few seconds, never text in the page, so nothing shifts. Errors stay
+   * longer and are amber. `onHide` clears it.
+   */
+  message?: { text: string; error?: boolean; onHide: () => void };
 }) {
   const { colors } = useApp();
   const windowHeight = useWindowDimensions().height;
@@ -133,6 +150,20 @@ export function Screen({
   const sheetProgress = useSharedValue(0);
   const backdropProgress = useSharedValue(0);
   const closingSheet = React.useRef(false);
+  const scrollSize = React.useRef({ content: 0, view: 0 });
+  // The footer rides on top of the keyboard, so a focused field has to clear it as well.
+  // footerInset is the safe-area padding actually under it, which tucks behind the keyboard:
+  // measured, since inside an iOS sheet it isn't always the screen's own bottom inset.
+  const [footerHeight, setFooterHeight] = React.useState(0);
+  const [footerInner, setFooterInner] = React.useState(0);
+  const footerInset = Math.max(0, footerHeight - footerInner);
+  // Room under the footer's button: clear of the Home indicator with space to spare when the
+  // keyboard is down. When it's up, all but 12 points of it tucks behind the keyboard.
+  const footerPad = Math.max(insets.bottom, footerInset) + 20 - footerInset;
+  const footerTuck = footerInset + footerPad - 12;
+  const keyboardGap = footer
+    ? Math.max(KEYBOARD_GAP, footerHeight - footerTuck + 16)
+    : KEYBOARD_GAP;
   React.useEffect(() => {
     if (!overlaySheet) return;
     closingSheet.current = false;
@@ -162,6 +193,29 @@ export function Screen({
     opacity: backdropProgress.get(),
   }));
   const fromTop = overlaySheet && sheetFrom === 'top';
+  // Elsewhere the banner sits just inside this screen: below the status bar, unless this is a
+  // sheet that already starts below it. (On iOS it's always at the top of the whole screen.)
+  const messageTop =
+    (fromTop || (!overlaySheet && !(modal && Platform.OS === 'ios')) ? insets.top : 0) + 12;
+  const banner = message && (
+    <TopBanner
+      text={message.text}
+      tone={message.error ? 'warning' : 'success'}
+      duration={message.error ? 6000 : 3000}
+      top={Platform.OS === 'ios' ? insets.top + 12 : messageTop}
+      onHide={message.onHide}
+    />
+  );
+  // While the share sheet is open, a tap outside it should only close it. iOS also delivers that
+  // tap to the page underneath, so an invisible cover takes it instead, then steps aside.
+  const sharing = useSharing();
+  const shield = sharing && (
+    <View
+      style={StyleSheet.absoluteFill}
+      onStartShouldSetResponder={() => true}
+      onResponderRelease={shareSheetTapped}
+    />
+  );
   const sheetAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: (1 - sheetProgress.get()) * windowHeight * (fromTop ? -1 : 1) }],
   }));
@@ -237,8 +291,16 @@ export function Screen({
     <KeyboardAwareScrollView
       ref={scrollRef}
       onScroll={onScrollY ? (e) => onScrollY(e.nativeEvent.contentOffset.y) : undefined}
+      onContentSizeChange={(_w, h) => {
+        scrollSize.current.content = h;
+        onScrollRoom?.(Math.max(0, h - scrollSize.current.view));
+      }}
+      onLayout={(e) => {
+        scrollSize.current.view = e.nativeEvent.layout.height;
+        onScrollRoom?.(Math.max(0, scrollSize.current.content - e.nativeEvent.layout.height));
+      }}
       scrollEventThrottle={16}
-      bottomOffset={KEYBOARD_GAP}
+      bottomOffset={keyboardGap}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
       contentContainerStyle={{ flexGrow: 1 }}
@@ -314,8 +376,10 @@ export function Screen({
               />
             )}
             {overlay}
+            {banner}
           </View>
         </Animated.View>
+        {shield}
       </View>
     );
   }
@@ -331,14 +395,26 @@ export function Screen({
     >
       {body}
       {footer && (
-        <SafeAreaView
-          edges={['bottom']}
-          style={{ backgroundColor: colors.background, borderTopWidth: 0 }}
-        >
-          <View style={[styles.footer, { paddingBottom: 12 }]}>{footer}</View>
-        </SafeAreaView>
+        // Pinned to the bottom, and lifted with the keyboard so the button stays in view while
+        // typing. The safe-area padding tucks behind the keyboard.
+        <KeyboardStickyView offset={{ closed: 0, opened: footerTuck }}>
+          <SafeAreaView
+            edges={['bottom']}
+            onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}
+            style={{ backgroundColor: colors.background, borderTopWidth: 0 }}
+          >
+            <View
+              onLayout={(e) => setFooterInner(e.nativeEvent.layout.height)}
+              style={[styles.footer, { paddingBottom: footerPad }]}
+            >
+              {footer}
+            </View>
+          </SafeAreaView>
+        </KeyboardStickyView>
       )}
+      {shield}
       {overlay}
+      {banner}
     </SafeAreaView>
   );
 }
@@ -479,6 +555,93 @@ export function Avatar({
   );
 }
 /** A small centered dialog for confirming destructive actions. */
+/**
+ * A sheet over the current screen, from the bottom, for a quick choice: it looks and moves exactly
+ * like the overlay sheets (the backdrop fades in place while the sheet slides up), and a tap
+ * outside it closes it. Its content stays while it slides away.
+ */
+export function SheetModal({
+  visible,
+  onClose,
+  children,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const { colors } = useApp();
+  const insets = useSafeAreaInsets();
+  const windowHeight = useWindowDimensions().height;
+  const progress = useSharedValue(0);
+  const backdrop = useSharedValue(0);
+  // Stays mounted, showing what it last showed, until it has slid away.
+  const [mounted, setMounted] = React.useState(visible);
+  const [shown, setShown] = React.useState(children);
+  if (visible && !mounted) setMounted(true);
+  if (visible && shown !== children) setShown(children);
+  // Slides in once iOS has actually shown it (onShow). Right after another sheet closes, such as
+  // the contact picker, iOS holds it back until that one is gone, and an animation started any
+  // earlier would be over before anyone saw it.
+  const slideIn = () => {
+    backdrop.set(withTiming(1, { duration: 240, easing: Easing.out(Easing.cubic) }));
+    progress.set(withTiming(1, { duration: 380, easing: Easing.bezier(0.22, 1, 0.36, 1) }));
+  };
+  React.useEffect(() => {
+    if (visible) {
+      progress.set(0);
+      backdrop.set(0);
+      return;
+    }
+    backdrop.set(withTiming(0, { duration: 210, easing: Easing.inOut(Easing.cubic) }));
+    progress.set(
+      withTiming(0, { duration: 300, easing: Easing.bezier(0.4, 0, 1, 1) }, (finished) => {
+        if (finished) scheduleOnRN(setMounted, false);
+      }),
+    );
+  }, [backdrop, progress, visible]);
+  const backdropStyle = useAnimatedStyle(() => ({ opacity: backdrop.get() }));
+  const sheetStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: (1 - progress.get()) * windowHeight }],
+  }));
+  return (
+    <Modal
+      visible={mounted}
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      onShow={slideIn}
+      onRequestClose={onClose}
+    >
+      <View style={styles.overlaySheetRoot}>
+        <AnimatedPressable
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+          onPress={onClose}
+          style={[styles.overlaySheetBackdrop, backdropStyle]}
+        />
+        <Animated.View
+          style={[
+            styles.overlaySheet,
+            { backgroundColor: colors.background, paddingBottom: insets.bottom + 12 },
+            sheetStyle,
+          ]}
+        >
+          <View
+            style={{
+              alignSelf: 'center',
+              width: 38,
+              height: 5,
+              borderRadius: 3,
+              backgroundColor: colors.border,
+              marginTop: 10,
+            }}
+          />
+          {shown}
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
 export function ConfirmDialog({
   visible,
   title,
@@ -579,6 +742,9 @@ export function PresetGrid({
   disabled = false,
   compact = false,
   actionLabel = 'Check in at',
+  paged = false,
+  bleed = 0,
+  onAdd,
 }: {
   presets: Preset[];
   selected?: string;
@@ -589,87 +755,164 @@ export function PresetGrid({
   disabled?: boolean;
   compact?: boolean;
   actionLabel?: string;
+  /** Six tiles per page, swiped sideways, with page dots below once there's more than one. */
+  paged?: boolean;
+  /** The page's side padding, so swiping runs to the screen edges instead of stopping short. */
+  bleed?: number;
+  /** With paged, empty spots on a page show placeholder boxes; tapping one runs this. */
+  onAdd?: () => void;
 }) {
   const { isDark, colors } = useApp();
   // Always three equal columns. Extra tiles start a new row instead of stretching.
   const [width, setWidth] = React.useState(0);
   const GAP = 12;
   const tile = width ? Math.floor((width - GAP * 2) / 3) : undefined;
-  return (
-    <View
-      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
-      style={{ flexDirection: 'row', flexWrap: 'wrap', gap: GAP }}
-    >
-      {presets.map((p) => {
-        const Icon = presetIcons[p.icon] || MapPin;
-        const accent = accents[p.color] || accents.mint;
-        const active = selected === p.id;
-        return (
-          <Pressable
-            key={p.id}
-            accessibilityRole="button"
-            accessibilityLabel={`${actionLabel} ${p.name}`}
-            accessibilityState={{ selected: active }}
-            aria-selected={active}
-            accessibilityHint={onLongPress ? `Hold to ${longPressLabel.toLowerCase()}` : undefined}
-            accessibilityActions={
-              onLongPress ? [{ name: 'longpress', label: longPressLabel }] : undefined
-            }
-            onAccessibilityAction={(e) => {
-              if (e.nativeEvent.actionName === 'longpress') onLongPress?.(p);
-            }}
-            disabled={disabled}
-            onPress={() => onSelect(p)}
-            onLongPress={onLongPress ? () => onLongPress(p) : undefined}
-            delayLongPress={400}
-            style={({ pressed }) => ({
-              width: tile ?? '30%',
-              minHeight: compact ? 98 : 112,
-              borderRadius: 23,
-              padding: 13,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: isDark ? accent.dark : accent.bg,
-              borderWidth: 1.5,
-              borderColor: active ? colors.green : 'transparent',
-              opacity: pressed ? 0.65 : 1,
-              gap: 12,
-            })}
-          >
-            <Icon
-              size={compact ? 28 : 31}
+  const PAGE_SIZE = 6;
+  const pages: Preset[][] = [];
+  for (let i = 0; i < presets.length; i += PAGE_SIZE) pages.push(presets.slice(i, i + PAGE_SIZE));
+  const [page, setPage] = React.useState(0);
+  const scroller = React.useRef<ScrollViewInstance>(null);
+  // How far apart pages sit: a full width plus the same gap as between tiles.
+  const step = width + GAP;
+  const current = Math.min(page, Math.max(0, pages.length - 1));
+  const renderTile = (p: Preset) => {
+    const Icon = presetIcons[p.icon] || MapPin;
+    const accent = accents[p.color] || accents.mint;
+    const active = selected === p.id;
+    return (
+      <Pressable
+        key={p.id}
+        accessibilityRole="button"
+        accessibilityLabel={`${actionLabel} ${p.name}`}
+        accessibilityState={{ selected: active }}
+        aria-selected={active}
+        accessibilityHint={onLongPress ? `Hold to ${longPressLabel.toLowerCase()}` : undefined}
+        accessibilityActions={
+          onLongPress ? [{ name: 'longpress', label: longPressLabel }] : undefined
+        }
+        onAccessibilityAction={(e) => {
+          if (e.nativeEvent.actionName === 'longpress') onLongPress?.(p);
+        }}
+        disabled={disabled}
+        onPress={() => onSelect(p)}
+        onLongPress={onLongPress ? () => onLongPress(p) : undefined}
+        delayLongPress={400}
+        style={({ pressed }) => ({
+          width: tile ?? '30%',
+          minHeight: compact ? 98 : 112,
+          borderRadius: 23,
+          padding: 13,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: isDark ? accent.dark : accent.bg,
+          borderWidth: 1.5,
+          borderColor: active ? colors.green : 'transparent',
+          opacity: pressed ? 0.65 : 1,
+          gap: 12,
+        })}
+      >
+        <Icon size={compact ? 28 : 31} color={isDark ? '#DAE5D5' : accent.ink} strokeWidth={1.5} />
+        <Txt weight="medium" style={{ fontSize: 13, lineHeight: 17, textAlign: 'center' }}>
+          {p.name}
+        </Txt>
+        {p.favorite && !active && (
+          <View style={{ position: 'absolute', top: 9, right: 9 }}>
+            <Star
+              size={12}
               color={isDark ? '#DAE5D5' : accent.ink}
-              strokeWidth={1.5}
+              fill={isDark ? '#DAE5D5' : accent.ink}
             />
-            <Txt weight="medium" style={{ fontSize: 13, lineHeight: 17, textAlign: 'center' }}>
-              {p.name}
-            </Txt>
-            {p.favorite && !active && (
-              <View style={{ position: 'absolute', top: 9, right: 9 }}>
-                <Star
-                  size={12}
-                  color={isDark ? '#DAE5D5' : accent.ink}
-                  fill={isDark ? '#DAE5D5' : accent.ink}
-                />
-              </View>
-            )}
-            {active && (
-              <View
-                style={{
-                  position: 'absolute',
-                  top: 8,
-                  right: 8,
-                  backgroundColor: colors.green,
-                  borderRadius: 10,
-                  padding: 2,
-                }}
-              >
-                <Check size={11} color={colors.background} />
-              </View>
-            )}
-          </Pressable>
-        );
+          </View>
+        )}
+        {active && (
+          <View
+            style={{
+              position: 'absolute',
+              top: 8,
+              right: 8,
+              backgroundColor: colors.green,
+              borderRadius: 10,
+              padding: 2,
+            }}
+          >
+            <Check size={11} color={colors.background} />
+          </View>
+        )}
+      </Pressable>
+    );
+  };
+  // A dashed, tile-sized box for an empty spot on a page, ready for a new check-in.
+  const renderPlaceholder = (key: string) => (
+    <Pressable
+      key={key}
+      accessibilityRole="button"
+      accessibilityLabel="New check-in"
+      disabled={!onAdd}
+      onPress={onAdd}
+      style={({ pressed }) => ({
+        width: tile ?? '30%',
+        minHeight: compact ? 98 : 112,
+        borderRadius: 23,
+        borderWidth: 1.5,
+        borderStyle: 'dashed',
+        borderColor: `${colors.muted}59`,
+        alignItems: 'center',
+        justifyContent: 'center',
+        opacity: pressed ? 0.6 : 1,
       })}
+    >
+      <Plus size={20} color={colors.muted} strokeWidth={1.6} style={{ opacity: 0.6 }} />
+    </Pressable>
+  );
+  const grid = (items: Preset[], style?: StyleProp<ViewStyle>) => {
+    const empty = paged ? (PAGE_SIZE - (items.length % PAGE_SIZE)) % PAGE_SIZE : 0;
+    return (
+      <View style={[{ flexDirection: 'row', flexWrap: 'wrap', gap: GAP }, style]}>
+        {items.map(renderTile)}
+        {Array.from({ length: empty }, (_, i) => renderPlaceholder(`empty-${i}`))}
+      </View>
+    );
+  };
+  if (!paged || !width || pages.length <= 1)
+    return <View onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>{grid(presets)}</View>;
+  return (
+    <View onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
+      <ScrollView
+        ref={scroller}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        snapToInterval={step}
+        decelerationRate="fast"
+        disableIntervalMomentum
+        scrollEventThrottle={16}
+        onScroll={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / step))}
+        style={{ marginHorizontal: -bleed }}
+        contentContainerStyle={{ paddingHorizontal: bleed, gap: GAP }}
+      >
+        {pages.map((items, i) => (
+          <View key={i} style={{ width }}>
+            {grid(items, { alignContent: 'flex-start' })}
+          </View>
+        ))}
+      </ScrollView>
+      <View style={[styles.row, { gap: 6, justifyContent: 'center', marginTop: 14 }]}>
+        {pages.map((_, i) => (
+          <Pressable
+            key={i}
+            accessibilityRole="button"
+            accessibilityLabel={`Check-ins page ${i + 1} of ${pages.length}`}
+            accessibilityState={{ selected: i === current }}
+            hitSlop={8}
+            onPress={() => scroller.current?.scrollTo({ x: i * step, animated: true })}
+            style={{
+              width: i === current ? 18 : 6,
+              height: 6,
+              borderRadius: 3,
+              backgroundColor: i === current ? colors.green : `${colors.green}40`,
+            }}
+          />
+        ))}
+      </View>
     </View>
   );
 }
@@ -837,7 +1080,7 @@ export function Field({
   clearButton?: boolean;
 }) {
   const { colors } = useApp();
-  const input = React.useRef<TextInput>(null);
+  const input = React.useRef<TextInputInstance>(null);
   const showClear = clearable && !!props.value && props.editable !== false;
   const showX = clearButton && !!props.value && props.editable !== false;
   const clear = () => {
@@ -988,6 +1231,29 @@ export function Empty({
   );
 }
 /** A confirmation that slides down from the top of the screen, then hides itself. */
+/**
+ * A screen's message banner. On iOS it's drawn above everything, sheets included, so it always
+ * drops in at the top of the screen, never on top of a sheet; taps outside it pass through. It
+ * stays a moment after the message clears, so it can slide away.
+ */
+function TopBanner(props: {
+  text: string;
+  tone: 'success' | 'warning';
+  duration: number;
+  top: number;
+  onHide: () => void;
+}) {
+  const [mounted, setMounted] = React.useState(!!props.text);
+  if (props.text && !mounted) setMounted(true);
+  React.useEffect(() => {
+    if (props.text) return;
+    const timer = setTimeout(() => setMounted(false), 300);
+    return () => clearTimeout(timer);
+  }, [props.text]);
+  if (!mounted) return null;
+  const toast = <Toast {...props} dismissable />;
+  return Platform.OS === 'ios' ? <FullWindowOverlay>{toast}</FullWindowOverlay> : toast;
+}
 export function Toast({
   text,
   onHide,
@@ -1005,11 +1271,13 @@ export function Toast({
   top?: number;
   enterDuration?: number;
 }) {
+  // The timer restarts only for new text, not each time the screen passes a fresh onHide.
+  const hide = React.useEffectEvent(onHide);
   React.useEffect(() => {
     if (!text) return;
-    const timer = setTimeout(onHide, duration);
+    const timer = setTimeout(() => hide(), duration);
     return () => clearTimeout(timer);
-  }, [duration, text, onHide]);
+  }, [duration, text]);
   if (!text) return null;
   const Icon = tone === 'warning' ? AlertTriangle : Check;
   return (
@@ -1031,7 +1299,7 @@ export function Toast({
         paddingVertical: 14,
         paddingHorizontal: 16,
         borderRadius: 18,
-        backgroundColor: tone === 'warning' ? '#A65D3A' : '#287B5A',
+        backgroundColor: tone === 'warning' ? '#DE5B55' : '#287B5A',
         shadowColor: '#000',
         shadowOpacity: 0.15,
         shadowRadius: 12,

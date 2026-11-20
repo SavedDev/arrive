@@ -20,8 +20,8 @@ import {
   type Anchor,
 } from './anchor';
 import {
-  DEPARTURE_BODY,
   DEPARTURE_TITLE,
+  departureBodyFor,
   cancelScheduledReminder,
   scheduleDepartureReminder,
 } from './reminder-runtime';
@@ -287,7 +287,7 @@ export async function testDepartureReminder(recipientId: string, seconds = 10) {
   await Notifications.cancelScheduledNotificationAsync('departure-test').catch(() => {});
   const id = await localNotice(
     DEPARTURE_TITLE,
-    DEPARTURE_BODY,
+    await departureBodyFor(recipientId),
     { kind: 'departure-test', recipientId },
     seconds,
     'departure-test',

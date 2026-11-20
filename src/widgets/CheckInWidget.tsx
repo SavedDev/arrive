@@ -17,7 +17,7 @@ const CheckIn = (_props: object, environment: WidgetEnvironment) => {
   return (
     <VStack modifiers={[widgetURL('arrive://check-in')]}>
       <Image
-        assetName="ArriveActivityIcon"
+        assetName="ArriveActivityMark"
         modifiers={[
           resizable(),
           aspectRatio({ contentMode: 'fit' }),

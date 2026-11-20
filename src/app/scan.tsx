@@ -6,6 +6,7 @@ import * as Crypto from 'expo-crypto';
 import { Button, Card, Notice, Row, Screen, Toggle, Txt } from '@/components/ui';
 import { useApp } from '@/state/app';
 import { decodePerson } from '@/lib/people';
+import { replaceMessage } from '@/components/replace-person';
 import { errorMessage } from '@/lib/domain';
 import {
   acceptSmartInvite,
@@ -17,23 +18,31 @@ export default function Scan() {
   const [permission, requestPermission] = useCameraPermissions();
   const [candidate, setCandidate] = useState<ReturnType<typeof decodePerson> | null>(null);
   const [error, setError] = useState(''),
-    [makeDefault, setDefault] = useState(!app.prefs.defaultRecipient),
+    // The scan failed: the camera stays hidden until Scan again, after the error banner has gone.
+    [failed, setFailed] = useState(false),
     [pairSmart, setPairSmart] = useState(false),
     [busy, setBusy] = useState(false);
   const scanned = useRef(false);
+  const fail = (message: string) => {
+    setError(message);
+    setFailed(true);
+  };
   return (
-    <Screen modal title="Scan their QR" subtitle="Their details stay on this device.">
+    <Screen
+      modal
+      title="Scan their QR"
+      subtitle="Their details stay on this device."
+      message={{ text: error, error: true, onHide: () => setError('') }}
+    >
       {!candidate &&
-        !error &&
+        !failed &&
         (permission?.granted ? (
           <View style={{ height: 300, overflow: 'hidden', borderRadius: 24 }}>
             <CameraView
               style={{ flex: 1 }}
               facing="back"
               barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-              onMountError={() =>
-                setError('Camera unavailable. Enter your person manually instead.')
-              }
+              onMountError={() => fail('Camera unavailable. Enter your person manually instead.')}
               onBarcodeScanned={({ data }) => {
                 if (scanned.current) return;
                 scanned.current = true;
@@ -41,7 +50,7 @@ export default function Scan() {
                   setCandidate(decodePerson(data));
                   setError('');
                 } catch (e) {
-                  setError(errorMessage(e));
+                  fail(errorMessage(e));
                 }
               }}
             />
@@ -86,14 +95,10 @@ export default function Scan() {
               )}
             </>
           )}
-          <Row
-            title="Make my default person"
-            right={
-              <Toggle label="Make my default person" value={makeDefault} onChange={setDefault} />
-            }
-          />
+          {/* Arrive keeps one person: saving here replaces them, and says so first. */}
+          <Notice text={replaceMessage(app.people[0], candidate.name)} />
           <Button
-            label="Confirm and save person"
+            label={app.people[0] ? `Replace ${app.people[0].name}` : 'Confirm and save person'}
             loading={busy}
             onPress={() => {
               setBusy(true);
@@ -101,7 +106,7 @@ export default function Scan() {
                 const { name, phone } = candidate;
                 const id = Crypto.randomUUID();
                 // Saved as an ordinary recipient first; pairing is an optional extra.
-                await app.savePerson({ id, name, phone }, makeDefault);
+                await app.savePerson({ id, name, phone });
                 if ('pairToken' in candidate && pairSmart) {
                   const pairToken = candidate.pairToken;
                   if (!pairToken) throw new Error('This Smart Reminders invitation is invalid.');
@@ -119,8 +124,7 @@ export default function Scan() {
           />
         </>
       )}
-      <Notice text={error} error />
-      {(!!candidate || !!error) && (
+      {(!!candidate || failed) && (
         <Button
           label="Scan again"
           variant="secondary"
@@ -129,6 +133,7 @@ export default function Scan() {
             scanned.current = false;
             setCandidate(null);
             setError('');
+            setFailed(false);
           }}
         />
       )}

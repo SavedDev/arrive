@@ -10,5 +10,5 @@ export function invitationMessage(installUrl?: string) {
       /* Use the honest installed-app link until a public listing exists. */
     }
   }
-  return `A little check-in, a lot of love. Try Arrive: ${link}\n${link.startsWith('arrive:') ? 'This link opens the app only if you already have Arrive installed. ' : ''}This invite does not share phone numbers or connect us automatically. Share your contact separately, or let me scan your Arrive QR.`;
+  return `I use Arrive, the fastest way to check in. Try it: ${link}\n${link.startsWith('arrive:') ? 'This link opens the app only if you already have Arrive installed. ' : ''}This invite does not share phone numbers or connect us automatically. Share your contact separately, or let me scan your Arrive QR.`;
 }

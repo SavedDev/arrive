@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { usePreventRemove } from 'expo-router/react-navigation';
@@ -6,13 +6,10 @@ import { Check, ChevronRight, Star, Trash2 } from 'lucide-react-native';
 import * as Crypto from 'expo-crypto';
 import {
   Button,
-  Chip,
   ConfirmDialog,
   Field,
   IconButton,
-  Notice,
   Screen,
-  Toast,
   Txt,
   goBack,
   presetIcons,
@@ -41,7 +38,6 @@ export default function PresetEditor() {
   const [edited, setEdited] = useState(Boolean(existing)),
     [icon, setIcon] = useState<IconName>(existing?.icon || 'pin'),
     [color, setColor] = useState<Accent>(existing?.color || 'mint'),
-    [recipient, setRecipient] = useState(existing?.recipientId || ''),
     [favorite, setFavorite] = useState(existing?.favorite || false);
   const navigation = useNavigation();
   const [error, setError] = useState(''),
@@ -50,7 +46,6 @@ export default function PresetEditor() {
     [deleting, setDeleting] = useState(false),
     [leaving, setLeaving] = useState(false),
     [discard, setDiscard] = useState<Parameters<typeof navigation.dispatch>[0] | null>(null);
-  const clearWarning = useCallback(() => setWarning(''), []);
   const showFailure = (failure: unknown) => {
     const message = errorMessage(failure);
     if (message.includes('favorite check-ins')) setWarning(message);
@@ -63,9 +58,13 @@ export default function PresetEditor() {
     message !== (existing?.message || suggestedMessage('')) ||
     icon !== (existing?.icon || 'pin') ||
     color !== (existing?.color || 'mint') ||
-    recipient !== (existing?.recipientId || '') ||
     (!existing && favorite);
-  usePreventRemove(dirty && !leaving, ({ data }) => setDiscard(data.action));
+  // Once you choose to discard, the guard steps aside and the close goes through.
+  const [discarded, setDiscarded] = useState<typeof discard>(null);
+  usePreventRemove(dirty && !leaving && !discarded, ({ data }) => setDiscard(data.action));
+  useEffect(() => {
+    if (discarded) navigation.dispatch(discarded);
+  }, [discarded, navigation]);
   useEffect(() => onIconPicked(setIcon), []);
   // A picked icon from the full list shows first, ahead of the quick picks.
   const shownIcons = quickIcons.includes(icon) ? quickIcons : [icon, ...quickIcons];
@@ -81,7 +80,8 @@ export default function PresetEditor() {
         message,
         icon,
         color,
-        recipientId: recipient,
+        // Every check-in goes to your one person.
+        recipientId: '',
         favorite,
         order: existing?.order ?? app.presets.length,
       };
@@ -96,18 +96,24 @@ export default function PresetEditor() {
   return (
     <Screen
       modal
-      title={existing ? 'Edit check-in' : 'New check-in'}
-      overlay={
-        <Toast
-          text={warning}
-          onHide={clearWarning}
-          duration={6000}
-          enterDuration={80}
-          tone="warning"
-          dismissable
-          top={18}
+      footer={
+        <Button
+          label={existing ? 'Save check-in' : 'Add check-in'}
+          onPress={save}
+          loading={busy}
+          // Nothing to save until something changes. The star saves on its own, so it doesn't count.
+          disabled={!!existing && !dirty}
         />
       }
+      message={{
+        text: error || warning,
+        error: true,
+        onHide: () => {
+          setError('');
+          setWarning('');
+        },
+      }}
+      title={existing ? 'Edit check-in' : 'New check-in'}
       action={
         <>
           <IconButton
@@ -151,6 +157,8 @@ export default function PresetEditor() {
     >
       <Field
         label="Name"
+        // A new check-in starts with its name, keyboard up; editing one leaves the keyboard down.
+        autoFocus={!existing}
         clearButton
         placeholder="e.g. Pickleball"
         value={name}
@@ -222,7 +230,8 @@ export default function PresetEditor() {
               alignItems: 'center',
               justifyContent: 'center',
               borderWidth: 1.5,
-              borderColor: color === key ? a.ink : 'transparent',
+              // A soft edge in each swatch's own color; the chosen one gets the full color.
+              borderColor: color === key ? a.ink : `${a.ink}4D`,
             }}
           >
             {color === key && <Check size={19} color={a.ink} />}
@@ -241,29 +250,6 @@ export default function PresetEditor() {
           setMessage(v);
         }}
       />
-      <Txt weight="medium" style={labelStyle}>
-        Send to
-      </Txt>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        <Chip label="My default person" active={!recipient} onPress={() => setRecipient('')} />
-        {app.people.map((c) => (
-          <Chip
-            key={c.id}
-            label={c.name}
-            active={recipient === c.id}
-            onPress={() => setRecipient(c.id)}
-          />
-        ))}
-      </View>
-      <Notice text={error} error />
-      <Button
-        label={existing ? 'Save check-in' : 'Add check-in'}
-        onPress={save}
-        loading={busy}
-        // Nothing to save until something changes. The star saves on its own, so it doesn't count.
-        disabled={!!existing && !dirty}
-        style={{ marginTop: 24 }}
-      />
       <ConfirmDialog
         visible={!!discard}
         title="Discard your changes?"
@@ -272,9 +258,10 @@ export default function PresetEditor() {
         cancelLabel="Keep editing"
         onCancel={() => setDiscard(null)}
         onConfirm={() => {
-          const action = discard;
+          // Turn the unsaved-changes guard off first, then close (see the effect above);
+          // closing straight away would be caught by the guard and ask again.
+          setDiscarded(discard);
           setDiscard(null);
-          if (action) navigation.dispatch(action);
         }}
       />
       {existing && (

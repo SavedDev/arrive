@@ -37,7 +37,7 @@ export function useSendCheckIn() {
   async function send(
     preset: Preset,
     options: {
-      /** Overrides the check-in's own person, for example from a notification. */
+      /** Who a Lock Screen or notification request named. Arrive keeps one person, so it's unused. */
       recipientId?: string;
       /** Opened from the Lock Screen reminder or its notification. */
       fromReminder?: boolean;
@@ -48,15 +48,11 @@ export function useSendCheckIn() {
     if (inFlight.current) return;
     setError('');
     setNote('');
-    const person = app.people.find(
-      (p) => p.id === (options.recipientId || preset.recipientId || app.prefs.defaultRecipient),
-    );
+    // Arrive keeps one person, and every check-in goes to them. (An older reminder may still
+    // name someone who has since been replaced; it goes to your person all the same.)
+    const person = app.people[0];
     if (!person) {
-      setError(
-        app.people.length
-          ? `Choose who ${preset.name} goes to. Hold it to edit.`
-          : 'Add your person first, so Arrive knows who to text.',
-      );
+      setError('Add your person first, so Arrive knows who to text.');
       return;
     }
     inFlight.current = true;

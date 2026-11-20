@@ -1,7 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Linking, Platform, Pressable, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Linking, Platform, Pressable, View, type ViewStyle } from 'react-native';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Bell, HelpCircle, Mail, Settings2, Shield, Trash2 } from 'lucide-react-native';
 import {
   Button,
@@ -12,7 +17,6 @@ import {
   Row,
   Screen,
   Section,
-  Toast,
   Toggle,
   Txt,
   goBack,
@@ -132,11 +136,12 @@ function DayPicker({ days, onChange }: { days: number[]; onChange: (days: number
 export default function SettingsSheet() {
   // Home opens Appearance from the top, leaving its Lock Screen banner preview in view below,
   // and says how much room there is above that preview and where the preview sits on screen.
-  const { section, from, room, px, py, pw } = useLocalSearchParams<{
+  const { section, from, room, px, py, pw, p0 } = useLocalSearchParams<{
     section: SettingsSection;
     from?: 'top';
     room?: string;
     px?: string;
+    p0?: string;
     py?: string;
     pw?: string;
   }>();
@@ -187,22 +192,23 @@ export default function SettingsSheet() {
     }
   }
   const title = titles[section] || 'Settings';
-  // The banner's call button phones your default person, so it needs one with a number.
-  const callee = app.people.find((c) => c.id === prefs.defaultRecipient);
+  // The banner's call button phones your person, so it needs one with a number.
+  const callee = app.people[0];
   const canCall = !!callee && !!telUrl(callee.phone);
   const callUnavailable = !callee
-    ? 'Choose a default person to use the call button.'
+    ? 'Add your person to use the call button.'
     : !canCall
       ? `Add a phone number for ${callee.name} to use the call button.`
       : '';
   const [toast, setToast] = useState('');
-  const hideToast = useCallback(() => setToast(''), []);
-  const insets = useSafeAreaInsets();
   // A copy of Home's banner preview, drawn exactly over it and above the dimmed backdrop, so
   // changes show at full brightness as they're made.
   const bannerCopy =
     section === 'appearance' && py && px && pw ? (
-      <View style={{ position: 'absolute', left: Number(px), top: Number(py), width: Number(pw) }}>
+      <Glide
+        from={p0 ? Number(p0) - Number(py) : 0}
+        style={{ position: 'absolute', left: Number(px), top: Number(py), width: Number(pw) }}
+      >
         <ActivityBannerPreview
           presets={activityShortcuts(app.presets, prefs.activityPresetOrder)}
           design={prefs.lockScreenStyle}
@@ -213,7 +219,7 @@ export default function SettingsSheet() {
           onAppearance={() => {}}
           onDragChange={() => {}}
         />
-      </View>
+      </Glide>
     ) : undefined;
   return (
     <Screen
@@ -222,20 +228,18 @@ export default function SettingsSheet() {
       sheetFrom={from === 'top' ? 'top' : 'bottom'}
       sheetMaxHeight={room ? Number(room) : undefined}
       aboveBackdrop={bannerCopy}
-      overlay={
-        <Toast
-          text={toast}
-          onHide={hideToast}
-          tone="warning"
-          dismissable
-          top={(from === 'top' ? insets.top : 0) + 12}
-        />
-      }
+      message={{
+        text: error || toast || note,
+        error: !!(error || toast),
+        onHide: () => {
+          setError('');
+          setToast('');
+          setNote('');
+        },
+      }}
       fitContent={Platform.OS !== 'web' && fitContent}
       title={title}
     >
-      <Notice text={error} error />
-      <Notice text={note} />
       {section === 'reminders' && (
         <>
           <Row
@@ -546,7 +550,7 @@ export default function SettingsSheet() {
       {section === 'privacy' && (
         <>
           <Txt tone="muted" style={{ fontSize: 13, lineHeight: 20 }}>
-            Your people, check-ins, places, preferences, and recent history are stored only on this
+            Your person, check-ins, places, preferences, and recent history are stored only on this
             device. There is no Arrive account or cloud recovery. Smart Check-In sends the
             Cloudflare service only anonymous requests to start it after you leave a remembered
             place (never where), and, if you pair with someone, each paired phone&apos;s latest
@@ -602,4 +606,26 @@ export default function SettingsSheet() {
       {!titles[section] && <Button label="Back to settings" variant="ghost" onPress={goBack} />}
     </Screen>
   );
+}
+
+/**
+ * Moves its content from `from` points away to where it's placed, in step with Home scrolling
+ * the banner preview into view, so the copy and the real preview move as one.
+ */
+function Glide({
+  from,
+  style,
+  children,
+}: {
+  from: number;
+  style: ViewStyle;
+  children: React.ReactNode;
+}) {
+  const offset = useSharedValue(from);
+  useEffect(() => {
+    // About as long as iOS takes to scroll a page by code.
+    offset.set(withTiming(0, { duration: 300, easing: Easing.inOut(Easing.ease) }));
+  }, [offset]);
+  const moving = useAnimatedStyle(() => ({ transform: [{ translateY: offset.get() }] }));
+  return <Animated.View style={[style, moving]}>{children}</Animated.View>;
 }

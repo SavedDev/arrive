@@ -6,15 +6,15 @@ import {
   PeopleArt,
   Scribble,
 } from '@/components/onboarding-art';
-import { Avatar, Button, Field, Notice, Screen, Toggle, Txt } from '@/components/ui';
+import { Avatar, Button, Field, Screen, Toggle, Txt } from '@/components/ui';
 import { accents } from '@/design/theme';
 import { errorMessage } from '@/lib/domain';
 import { enableNotifications } from '@/lib/notifications';
 import type { Person } from '@/lib/types';
 import { useApp } from '@/state/app';
-import { parsePhoneNumberFromString } from 'libphonenumber-js/max';
 import * as Notifications from 'expo-notifications';
 import { Redirect, router } from 'expo-router';
+import { parsePhoneNumberFromString } from 'libphonenumber-js/max';
 import {
   Bell,
   ChevronRight,
@@ -37,16 +37,8 @@ export default function Welcome() {
     [message, setMessage] = useState(app.prefs.defaultMessage),
     [error, setError] = useState('');
   const { width } = useWindowDimensions();
-  // Onboarding sets up one person: whoever was added last. Picking someone else replaces them.
-  const chosen = app.people.at(-1);
-  const { people, prefs, deletePerson, updatePrefs } = app;
-  useEffect(() => {
-    if (prefs.onboardingDone || !chosen) return;
-    for (const p of people) if (p.id !== chosen.id) void deletePerson(p.id).catch(() => {});
-    if (prefs.defaultRecipient !== chosen.id)
-      void updatePrefs({ defaultRecipient: chosen.id }).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chosen?.id, people.length]);
+  // Arrive keeps one person: picking someone here replaces whoever was picked before.
+  const chosen = app.people[0];
   // Already set up (an upgrade, or opened from a stale link): straight to Home.
   if (app.prefs.onboardingDone) return <Redirect href="/" />;
   async function next() {
@@ -69,6 +61,14 @@ export default function Welcome() {
   }
   return (
     <Screen
+      message={{
+        text: error || contact.error,
+        error: true,
+        onHide: () => {
+          setError('');
+          contact.clearError();
+        },
+      }}
       // Back and Continue stay at the bottom while the step scrolls above them.
       footer={
         <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -128,8 +128,8 @@ export default function Welcome() {
               marginBottom: 26,
             }}
           >
-            Arrive helps you quickly let your person know where you made it, without manually
-            typing.
+            Arrive helps you quickly let someone know where you made it after leaving home, without
+            manually typing.
           </Txt>
         </View>
       )}
@@ -147,7 +147,7 @@ export default function Welcome() {
                 marginBottom: 24,
               }}
             >
-              Who do you want to keep in the loop?
+              Who do you want to check in with?
             </Txt>
             {/* <Txt
               tone="muted"
@@ -193,7 +193,6 @@ export default function Welcome() {
               />
             </View>
           )}
-          <Notice text={contact.error} error />
           {contact.sheet}
         </>
       )}
@@ -220,7 +219,7 @@ export default function Welcome() {
                 marginBottom: 22,
               }}
             >
-              Set a default check-in message, ready whenever you check in.
+              Set a default text check-in message.
             </Txt>
           </View>
           <Field
@@ -274,7 +273,6 @@ export default function Welcome() {
           <NotificationsToggle onError={setError} />
         </>
       )}
-      <Notice text={error} error />
     </Screen>
   );
 }

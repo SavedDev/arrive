@@ -1,11 +1,16 @@
 import { Linking } from 'react-native';
 import { useState } from 'react';
-import { Button, Notice, Screen, Section, Txt } from '@/components/ui';
+import { Button, Screen, Section, Txt } from '@/components/ui';
 import { errorMessage } from '@/lib/domain';
 export default function Privacy() {
   const [error, setError] = useState('');
   return (
-    <Screen modal title="Always in your hands" subtitle="Small check-ins. Thoughtful privacy.">
+    <Screen
+      modal
+      title="Always in your hands"
+      subtitle="Small check-ins. Thoughtful privacy."
+      message={{ text: error, error: true, onHide: () => setError('') }}
+    >
       <Section title="Your data stays with you" />
       <Txt>
         People and phone numbers, shortcuts, places, preferences, and history are stored on this
@@ -59,9 +64,8 @@ export default function Privacy() {
       <Txt>
         Arrive Plus uses the app store and RevenueCat’s anonymous purchase identity. Store purchase
         records are separate from your local check-in data. Restore purchases uses your store
-        account; it does not restore your people, places, or history.
+        account; it does not restore your person, places, or history.
       </Txt>
-      <Notice text={error} error />
       <Button
         label="Open phone permissions"
         variant="secondary"

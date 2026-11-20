@@ -32,7 +32,7 @@ test('backendless home and native messaging unavailable on web are honest', asyn
   await page.getByLabel('Phone number', { exact: true }).fill('+1 (312) 555-0123');
   await page.getByRole('button', { name: 'Confirm and save person' }).click();
   await page.goto('/');
-  await expect(page.getByText('Keeping 1 person in the loop', { exact: true })).toBeVisible();
+  await expect(page.getByText('Sarah', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Send Gym', exact: true }).click();
   await expect(page.getByText(/Messaging is unavailable/)).toBeVisible();
   await page.goto('/history');
@@ -45,6 +45,8 @@ test('Lock Screen preview reorders before the dragged icon is released', async (
   const other = page.locator('[aria-label^="Other, position"]');
   const work = page.locator('[aria-label^="Work, position"]');
   await expect(other).toHaveAttribute('aria-label', /position 1 of 3/);
+  // The preview sits at the bottom of Home, which can run past a short window.
+  await other.scrollIntoViewIfNeeded();
   const from = await other.boundingBox();
   const to = await work.boundingBox();
   expect(from).not.toBeNull();
@@ -103,13 +105,14 @@ test('create, customize, persist, favorite and delete a shortcut', async ({ page
     )
     .toBe('pizza');
   await page.goto('/');
-  // A 7th check-in starts a new row under the first column, at the same width.
+  // Six check-ins fill a page; a 7th starts page 2, in the first column at the same width.
   const first = await page.getByRole('button', { name: 'Send Home', exact: true }).boundingBox();
-  const seventh = await page
-    .getByRole('button', { name: 'Send Courts', exact: true })
-    .boundingBox();
-  expect(Math.round(seventh!.x)).toBe(Math.round(first!.x));
-  expect(Math.round(seventh!.width)).toBe(Math.round(first!.width));
+  await page.getByRole('button', { name: 'Check-ins page 2 of 2', exact: true }).click();
+  const courts = page.getByRole('button', { name: 'Send Courts', exact: true });
+  await expect
+    .poll(async () => Math.round((await courts.boundingBox())!.x))
+    .toBe(Math.round(first!.x));
+  expect(Math.round((await courts.boundingBox())!.width)).toBe(Math.round(first!.width));
   await hold(page, page.getByRole('button', { name: 'Send Courts', exact: true }));
   // Save waits for a real change; starring saves by itself and doesn't count.
   const save = page.getByRole('button', { name: 'Save check-in', exact: true });
@@ -134,8 +137,10 @@ test('create, customize, persist, favorite and delete a shortcut', async ({ page
 });
 test('settings sections and banner labels persist', async ({ page }) => {
   await page.goto('/settings');
-  await expect(page.getByRole('button', { name: 'Open Arrive Plus' })).toBeVisible();
-  // The widget isn't promoted anywhere; Arrive Plus is.
+  // Arrive Plus is a setting now, in place of Appearance (which opens from Home), with no banner.
+  await expect(page.getByRole('button', { name: 'Arrive Plus', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Appearance', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Open Arrive Plus' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Set up the Lock Screen widget' })).toHaveCount(0);
   await expect(page.getByLabel('First name')).toHaveCount(0);
   await page.getByRole('button', { name: 'Smart Check-In', exact: true }).click();
@@ -219,7 +224,7 @@ test('check-in links send from Home, and the widget guide returns Home', async (
   await expect(page.getByText('My check-ins', { exact: true })).toBeVisible();
 });
 
-test('person editing, default selection and removal persist locally', async ({ page }) => {
+test('one person: editing, replacing and removal persist locally', async ({ page }) => {
   await page.goto('/person');
   await page.getByLabel('Person’s name', { exact: true }).fill('Sarah');
   await page.getByLabel('Phone number', { exact: true }).fill('3125550123');
@@ -229,7 +234,9 @@ test('person editing, default selection and removal persist locally', async ({ p
   await page.getByRole('button', { name: 'Confirm and save person' }).click();
   await page.goto('/people');
   await page.reload();
-  await expect(page.getByText('Default person', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText('Gets your check-ins', { exact: true }).filter({ visible: true }),
+  ).toBeVisible();
   await expect(page.getByText('+13125550123')).toHaveCount(0);
   await page.getByRole('button', { name: /Sarah/ }).click();
   await page.getByLabel('Person’s name', { exact: true }).fill('Sara');
@@ -237,13 +244,50 @@ test('person editing, default selection and removal persist locally', async ({ p
   await page.goto('/');
   await page.getByRole('button', { name: 'Send Gym', exact: true }).click();
   await expect(page.getByText(/Messaging is unavailable/)).toBeVisible();
+  // Arrive keeps one person: adding someone new asks, then replaces them.
+  await page.goto('/person');
+  await page.getByLabel('Person’s name', { exact: true }).fill('Alex');
+  await page.getByLabel('Phone number', { exact: true }).fill('+1 312 555 0199');
+  await page.getByRole('button', { name: 'Confirm and save person' }).click();
+  await expect(page.getByText('Replace Sara with Alex?', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Yes, replace', exact: true }).click();
   await page.goto('/people');
-  await page.getByRole('button', { name: /Sara/ }).click();
+  await page.reload();
+  await expect(page.getByRole('button', { name: /Alex/ })).toBeVisible();
+  await expect(page.getByText('Sara', { exact: true })).toHaveCount(0);
+  await page.goto('/');
+  await expect(page.getByText('Alex', { exact: true })).toBeVisible();
+  await page.goto('/people');
+  await page.getByRole('button', { name: /Alex/ }).click();
   await page.getByRole('button', { name: 'Remove person', exact: true }).click();
   await page.getByRole('button', { name: 'Yes, remove', exact: true }).click();
   await page.goto('/');
   await page.getByRole('button', { name: 'Send Gym', exact: true }).click();
   await expect(page.getByText('Add your person first', { exact: false })).toBeVisible();
+});
+
+test('updating keeps only the default person', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('My check-ins', { exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    localStorage.setItem('arrive:local-version', '7');
+    localStorage.setItem(
+      'arrive:people',
+      JSON.stringify([
+        { id: 'a', name: 'Sam', phone: '+13125550101' },
+        { id: 'b', name: 'Jo', phone: '+13125550102' },
+        { id: 'c', name: 'Kim', phone: '+13125550103' },
+      ]),
+    );
+    const prefs = JSON.parse(localStorage.getItem('arrive:preferences') || '{}');
+    localStorage.setItem('arrive:preferences', JSON.stringify({ ...prefs, defaultRecipient: 'b' }));
+  });
+  await page.reload();
+  await expect(page.getByText('Jo', { exact: true })).toBeVisible();
+  await page.goto('/people');
+  await expect(page.getByRole('button', { name: /Jo/ })).toBeVisible();
+  await expect(page.getByText('Sam', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Kim', { exact: true })).toHaveCount(0);
 });
 
 test('QR generation requires consent and invitation setup has no pairing claims', async ({

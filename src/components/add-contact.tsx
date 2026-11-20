@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Modal, Pressable, View } from 'react-native';
+import { View } from 'react-native';
 import { router } from 'expo-router';
 import * as Crypto from 'expo-crypto';
 import { parsePhoneNumberFromString } from 'libphonenumber-js/max';
 import { Phone } from 'lucide-react-native';
-import { Avatar, Button, Txt, styles } from '@/components/ui';
+import { Avatar, Button, Notice, SheetModal, Txt, styles } from '@/components/ui';
+import { replaceMessage, useReplacePerson } from '@/components/replace-person';
 import { useApp } from '@/state/app';
 import { chooseContact, type PickedContact } from '@/lib/contact-picker';
 import { contactPhone, deviceRegion } from '@/lib/people';
@@ -21,15 +22,16 @@ export function useAddContact() {
     [error, setError] = useState(''),
     [note, setNote] = useState(''),
     [choice, setChoice] = useState<{ contact: PickedContact; phones: string[] } | null>(null);
-  async function save(contact: PickedContact, phone: string) {
+  const replace = useReplacePerson();
+  // `confirmed`: the number picker already said who this replaces, so picking was the answer.
+  async function save(contact: PickedContact, phone: string, confirmed = false) {
     setChoice(null);
     const name = (contact.name.trim() || phone).slice(0, 50);
     try {
-      await app.savePerson(
-        { id: Crypto.randomUUID(), name, phone, photo: contact.photo },
-        !app.prefs.defaultRecipient,
-      );
-      setNote(`${name} was added.`);
+      if (!confirmed && !(await replace.confirm(name))) return;
+      const replacing = !!replace.current;
+      await app.savePerson({ id: Crypto.randomUUID(), name, phone, photo: contact.photo });
+      setNote(replacing ? `${name} is now your person.` : `${name} was added.`);
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -66,70 +68,70 @@ export function useAddContact() {
     }
   }
   const sheet = (
-    <PhoneChoice
-      choice={choice}
-      onPick={(phone) => choice && save(choice.contact, phone)}
-      onCancel={() => setChoice(null)}
-    />
+    <>
+      <PhoneChoice
+        choice={choice}
+        replacing={choice ? replaceMessage(replace.current, choice.contact.name || 'them') : ''}
+        onPick={(phone) => choice && save(choice.contact, phone, true)}
+        onCancel={() => setChoice(null)}
+      />
+      {replace.dialog}
+    </>
   );
-  return { start, busy, error, note, clearNote: () => setNote(''), sheet };
+  return {
+    start,
+    busy,
+    error,
+    note,
+    clearNote: () => setNote(''),
+    clearError: () => setError(''),
+    sheet,
+  };
 }
 
 function PhoneChoice({
   choice,
+  replacing,
   onPick,
   onCancel,
 }: {
   choice: { contact: PickedContact; phones: string[] } | null;
+  /** Who this contact replaces, when there's already a person; picking a number confirms it. */
+  replacing: string;
   onPick: (phone: string) => void;
   onCancel: () => void;
 }) {
-  const { colors } = useApp();
   return (
-    <Modal visible={!!choice} transparent animationType="slide" onRequestClose={onCancel}>
-      <Pressable
-        accessibilityLabel="Cancel"
-        onPress={onCancel}
-        style={{ flex: 1, backgroundColor: 'rgba(20, 30, 25, 0.35)', justifyContent: 'flex-end' }}
-      >
-        <Pressable
-          onPress={() => {}}
-          style={{
-            backgroundColor: colors.background,
-            borderTopLeftRadius: 28,
-            borderTopRightRadius: 28,
-            padding: 24,
-            paddingBottom: 40,
-          }}
-        >
-          {choice && (
-            <>
-              <View style={[styles.row, { marginBottom: 16 }]}>
-                <Avatar person={choice.contact} size={46} />
-                <View style={{ flex: 1 }}>
-                  <Txt weight="rounded" style={{ fontSize: 20, lineHeight: 26 }}>
-                    {choice.contact.name}
-                  </Txt>
-                  <Txt tone="muted" style={{ fontSize: 13 }}>
-                    Which number should get your check-ins?
-                  </Txt>
-                </View>
+    <SheetModal visible={!!choice} onClose={onCancel}>
+      <View style={{ padding: 24, paddingTop: 18 }}>
+        {choice && (
+          <>
+            <View style={[styles.row, { marginBottom: 16 }]}>
+              <Avatar person={choice.contact} size={46} />
+              <View style={{ flex: 1 }}>
+                <Txt weight="rounded" style={{ fontSize: 20, lineHeight: 26 }}>
+                  {choice.contact.name}
+                </Txt>
+                <Txt tone="muted" style={{ fontSize: 13 }}>
+                  Which number should get your check-ins?
+                </Txt>
               </View>
-              {choice.phones.map((p) => (
-                <Button
-                  key={p}
-                  label={parsePhoneNumberFromString(p)?.formatInternational() || p}
-                  icon={Phone}
-                  variant="secondary"
-                  onPress={() => onPick(p)}
-                  style={{ marginBottom: 10 }}
-                />
-              ))}
-              <Button label="Cancel" variant="ghost" onPress={onCancel} />
-            </>
-          )}
-        </Pressable>
-      </Pressable>
-    </Modal>
+            </View>
+            <Notice text={replacing} />
+            {choice.phones.map((p) => (
+              <Button
+                key={p}
+                label={parsePhoneNumberFromString(p)?.formatInternational() || p}
+                icon={Phone}
+                variant="secondary"
+                onPress={() => onPick(p)}
+                style={{ marginBottom: 10 }}
+              />
+            ))}
+            <Button label="Cancel" variant="ghost" onPress={onCancel} />
+          </>
+        )}
+      </View>
+    </SheetModal>
   );
 }

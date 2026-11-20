@@ -38,55 +38,6 @@ export function Landscape({ width = 170, height = 150 }: { width?: number; heigh
     </Svg>
   );
 }
-export function HappySun({ size = 180 }: { size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 200 200">
-      <Circle cx="100" cy="100" r="89" fill="#FBF4DB" />
-      <G stroke="#E4BA51" strokeWidth="4" strokeLinecap="round">
-        <Path d="M100 29v-12m0 166v-12M29 100H17m166 0h-12M50 50l-9-9m118 118l-9-9M50 150l-9 9M150 50l9-9" />
-      </G>
-      <Circle cx="100" cy="100" r="52" fill="#F2D071" />
-      <Path d="M82 94v7m35-7v7" stroke="#6F6745" strokeWidth="5" strokeLinecap="round" />
-      <Path
-        d="M87 114q13 15 26 0"
-        stroke="#6F6745"
-        strokeWidth="3"
-        fill="none"
-        strokeLinecap="round"
-      />
-      <Ellipse cx="73" cy="111" rx="8" ry="5" fill="#E9AD7A" />
-      <Ellipse cx="126" cy="111" rx="8" ry="5" fill="#E9AD7A" />
-      <Path d="M157 135c-17-20-36 3 0 27 36-24 17-47 0-27" fill="#C9877D" />
-    </Svg>
-  );
-}
-/** Arrive Plus banner: a smiling sun rising over hills, with floating hearts. */
-export function PlusArt({ width = 130, height = 110 }: { width?: number; height?: number }) {
-  return (
-    <Svg width={width} height={height} viewBox="0 0 130 110">
-      <Circle cx="78" cy="48" r="30" fill="#FBF4DB" />
-      <G stroke="#E4BA51" strokeWidth="2.5" strokeLinecap="round">
-        <Path d="M78 8v-5M78 93v-3M38 48h-5M123 48h-5M50 20l-4-4M110 80l-3-3M106 20l4-4" />
-      </G>
-      <Circle cx="78" cy="48" r="20" fill="#F2D071" />
-      <Path d="M71 45v3m14-3v3" stroke="#6F6745" strokeWidth="2.5" strokeLinecap="round" />
-      <Path
-        d="M73 54q5 6 10 0"
-        stroke="#6F6745"
-        strokeWidth="2"
-        fill="none"
-        strokeLinecap="round"
-      />
-      <Ellipse cx="66" cy="53" rx="3.5" ry="2" fill="#E9AD7A" />
-      <Ellipse cx="90" cy="53" rx="3.5" ry="2" fill="#E9AD7A" />
-      <Path d="M0 92c26-22 52-20 74-4 20-12 40-12 56-2v24H0z" fill="#C2D6A7" />
-      <Path d="M0 100c30-12 60-10 86 2 16-6 30-6 44 0v8H0z" fill="#94B58B" />
-      <Path d="M28 30c-5-6-12 1 0 9 12-8 5-15 0-9" fill="#D5A18E" />
-      <Path d="M116 70c-4-5-9 1 0 7 9-6 4-12 0-7" fill="#C9877D" />
-      <Path d="M20 58l1.5 3.5L25 63l-3.5 1.5L20 68l-1.5-3.5L15 63l3.5-1.5z" fill="#FFFFFF" />
-    </Svg>
-  );
-}
 /** Widget banner: a little phone Lock Screen showing the round Check In widget. */
 export function LockScreenArt({ width = 120, height = 130 }: { width?: number; height?: number }) {
   return (

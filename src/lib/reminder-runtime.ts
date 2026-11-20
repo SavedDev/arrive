@@ -35,7 +35,18 @@ import type { ReminderActivityProps } from '@/widgets/ReminderActivity';
 const KEY = 'reminder';
 const DISMISSED_KEY = 'reminder-dismissed';
 export const DEPARTURE_TITLE = 'Heading somewhere? ❤️';
-export const DEPARTURE_BODY = 'Remember to let your person know when you arrive.';
+/** The notification's line, naming who the check-in goes to (or "your person" if no one). */
+export const departureBody = (name?: string) =>
+  `Remember to let ${name?.trim() || 'your person'} know when you arrive.`;
+/** The departure notification's text, for whoever recipientId is (else your default person). */
+export async function departureBodyFor(recipientId: string) {
+  const [p, people] = await Promise.all([prefs(), read<Person[]>('people', [])]);
+  const person =
+    people.find((c) => c.id === recipientId) ??
+    people.find((c) => c.id === p.defaultRecipient) ??
+    people[0];
+  return departureBody(person?.name);
+}
 // Tapping anywhere on the Live Activity opens Home. This URL is fixed for the
 // activity's lifetime, so it names no reminder; the current one is read from storage.
 const CHECK_IN_URL = 'arrive://check-in?from=reminder';
@@ -76,17 +87,22 @@ const interactiveActivities =
 // The local module and exact widget icon catalog arrive in the same native build. Older binaries
 // keep using visible SF Symbols until that build is installed.
 const exactWidgetIconsAvailable = !!requireOptionalNativeModule('ArriveWidgetStatus');
+/**
+ * Stands in for the person's name on the banner until someone is added: three dots, a little
+ * apart (no-break spaces, so they never wrap).
+ */
+export const NAME_BLANK = '.\u00A0.\u00A0.';
 async function props(r: Reminder): Promise<ReminderActivityProps> {
   const [p, presets, people] = await Promise.all([
     prefs(),
     read<Preset[]>('presets', initialPresets),
     read<Person[]>('people', []),
   ]);
+  // Who this check-in goes to: the reminder's person, or else the default one.
+  const recipient =
+    people.find((c) => c.id === r.recipientId) ?? people.find((c) => c.id === p.defaultRecipient);
   // The call button names the person by their id only; Arrive looks up the number when tapped.
-  const callee = p.activityCallButton
-    ? (people.find((c) => c.id === r.recipientId) ??
-      people.find((c) => c.id === p.defaultRecipient))
-    : undefined;
+  const callee = p.activityCallButton ? recipient : undefined;
   // Favorites choose the 2–4 shortcuts; the draggable Home preview controls their order.
   const coming = !!r.coming && r.phase !== 'completed';
   const shown = activityShortcuts(presets, p.activityPresetOrder);
@@ -104,7 +120,8 @@ async function props(r: Reminder): Promise<ReminderActivityProps> {
             ? 'Went separate ways? Check in.'
             : r.placeName && r.source !== 'manual'
               ? `Left ${r.placeName}. Where to?`
-              : 'Where did you make it to?',
+              : // With nobody added yet, a blank stands in for the name.
+                `Check in with ${recipient?.name.trim() || NAME_BLANK}`,
     checkInUrl: QUICK_CHECK_IN_URL,
     dismissUrl: DISMISS_URL,
     interactive: interactiveActivities,
@@ -247,7 +264,7 @@ async function scheduleDepartureReminderNow(input: {
     ? undefined
     : await localNotice(
         DEPARTURE_TITLE,
-        DEPARTURE_BODY,
+        await departureBodyFor(input.recipientId),
         {
           kind: 'departure',
           placeId: input.placeId,
@@ -307,7 +324,7 @@ async function startReminderNow(source: ReminderSource = 'manual', coming = fals
   // No Live Activity: a single notification after the usual delay stands in for it.
   await localNotice(
     DEPARTURE_TITLE,
-    DEPARTURE_BODY,
+    await departureBodyFor(p.defaultRecipient),
     { kind: 'departure', placeId: '', recipientId: p.defaultRecipient, reminder: '1' },
     Math.max(60, p.reminderMinutes * 60),
     'departure-manual',
@@ -421,7 +438,7 @@ async function simulateDepartureNow(seconds = 10) {
   const now = Date.now();
   await localNotice(
     DEPARTURE_TITLE,
-    DEPARTURE_BODY,
+    await departureBodyFor(p.defaultRecipient),
     { kind: 'departure', placeId: '', recipientId: p.defaultRecipient, reminder: '1' },
     seconds,
     'departure-test',

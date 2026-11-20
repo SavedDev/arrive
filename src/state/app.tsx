@@ -43,11 +43,11 @@ type Model = {
   reorderPreset: (id: string, direction: number) => Promise<void>;
   savePlace: (p: Place) => Promise<void>;
   deletePlace: (id: string) => Promise<void>;
-  savePerson: (p: Person, makeDefault: boolean) => Promise<void>;
+  /** Arrive keeps one person: saving someone new replaces whoever was there. */
+  savePerson: (p: Person) => Promise<void>;
   deletePerson: (id: string) => Promise<void>;
   /** Marks who this phone is paired with for Smart Reminders, or nobody. */
   setSmartPartner: (id: string | null) => Promise<void>;
-  reorderPeople: (ids: string[]) => Promise<void>;
   refreshHistory: () => Promise<void>;
   recordHistory: (e: HistoryEntry) => Promise<void>;
   clearHistory: () => Promise<void>;
@@ -172,7 +172,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setPlaces(next);
   }
 
-  async function savePerson(p: Person, makeDefault: boolean) {
+  async function savePerson(p: Person) {
+    const previous = state.current.people.find((x) => x.id !== p.id);
     const clean: Person = {
       id: p.id,
       ...validatePerson(p),
@@ -182,27 +183,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ? { smartPaired: true }
         : {}),
     };
-    if (state.current.people.some((x) => x.phone === clean.phone && x.id !== p.id))
-      throw new Error('This phone number is already saved. Edit the existing person instead.');
-    // Edits keep their place in the list; new people go to the end.
-    const next = await storage.update<Person[]>('people', [], (current) =>
-      current.some((x) => x.id === p.id)
-        ? current.map((x) => (x.id === p.id ? clean : x))
-        : [...current, clean],
-    );
+    // Someone new replaces the person who was there; a pairing with them ends.
+    if (previous?.smartPaired) {
+      await disconnectSmartReminders();
+      await updatePrefs({ smartReminders: false });
+    }
+    const next = [clean];
+    await storage.write('people', next);
     state.current.people = next;
     setPeople(next);
-    if (makeDefault) await updatePrefs({ defaultRecipient: p.id });
-    else if (state.current.prefs.defaultRecipient === p.id)
-      await updatePrefs({ defaultRecipient: '' });
-  }
-  async function reorderPeople(ids: string[]) {
-    const next = await storage.update<Person[]>('people', [], (current) => [
-      ...ids.flatMap((id) => current.filter((p) => p.id === id)),
-      ...current.filter((p) => !ids.includes(p.id)),
-    ]);
-    state.current.people = next;
-    setPeople(next);
+    if (state.current.prefs.defaultRecipient !== clean.id)
+      await updatePrefs({ defaultRecipient: clean.id });
   }
   async function deletePerson(id: string) {
     // Removing the paired person ends the pair; nobody else is affected.
@@ -253,7 +244,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await clearNotifications();
     await storage.clearAll();
     // Current data version, so a cleared app starts fresh, with onboarding.
-    await storage.write('local-version', 7);
+    await storage.write('local-version', 8);
     setPrefs(initialPreferences);
     setPresets(initialPresets);
     setPlaces([]);
@@ -283,7 +274,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         savePerson,
         deletePerson,
         setSmartPartner,
-        reorderPeople,
         refreshHistory,
         recordHistory,
         clearHistory,

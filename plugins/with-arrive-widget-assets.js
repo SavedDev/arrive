@@ -9,11 +9,19 @@ const presetIcons = require('../assets/widgets/preset-icons.json');
 
 const imagesets = [
   {
-    name: 'ArriveActivityIcon',
+    name: 'ArriveWordmark',
     files: [
-      'arrive-activity-icon.png',
-      'arrive-activity-icon@2x.png',
-      'arrive-activity-icon@3x.png',
+      'arrive-activity-wordmark.png',
+      'arrive-activity-wordmark@2x.png',
+      'arrive-activity-wordmark@3x.png',
+    ],
+  },
+  {
+    name: 'ArriveWordmarkDark',
+    files: [
+      'arrive-activity-wordmark-dark.png',
+      'arrive-activity-wordmark-dark@2x.png',
+      'arrive-activity-wordmark-dark@3x.png',
     ],
   },
   {

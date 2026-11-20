@@ -5,7 +5,6 @@ import {
   ConfirmDialog,
   Field,
   IconButton,
-  Notice,
   Row,
   Screen,
   Section,
@@ -44,7 +43,6 @@ export default function LocationEditor() {
   const [start] = useState(() => ({
     name: existing?.name || (home === '1' ? 'Home' : ''),
     presetId: existing?.presetId || homePreset?.id || app.presets[0]?.id || '',
-    recipientId: existing?.recipientId || app.prefs.defaultRecipient,
   }));
   const [name, setName] = useState(start.name),
     [address, setAddress] = useState(existing?.address || ''),
@@ -52,7 +50,6 @@ export default function LocationEditor() {
       existing ? { latitude: existing.latitude, longitude: existing.longitude } : undefined,
     );
   const [preset, setPreset] = useState(start.presetId),
-    [recipient, setRecipient] = useState(start.recipientId),
     [enabled, setEnabled] = useState(existing?.enabled || false),
     departure = existing?.departureReminder || false;
   const [query, setQuery] = useState(''),
@@ -71,10 +68,14 @@ export default function LocationEditor() {
     coordinate?.latitude !== existing?.latitude ||
     coordinate?.longitude !== existing?.longitude ||
     preset !== start.presetId ||
-    recipient !== start.recipientId ||
     enabled !== (existing?.enabled || false) ||
     departure !== (existing?.departureReminder || false);
-  usePreventRemove(dirty && !leaving, ({ data }) => setDiscard(data.action));
+  // Once you choose to discard, the guard steps aside and the close goes through.
+  const [discarded, setDiscarded] = useState<typeof discard>(null);
+  usePreventRemove(dirty && !leaving && !discarded, ({ data }) => setDiscard(data.action));
+  useEffect(() => {
+    if (discarded) navigation.dispatch(discarded);
+  }, [discarded, navigation]);
   useEffect(() => {
     if (leaving) goBack();
   }, [leaving]);
@@ -181,8 +182,8 @@ export default function LocationEditor() {
     setError('');
     setBusy(true);
     try {
-      if (!name.trim() || name.length > 40)
-        throw new Error('Give this place a name of 1–40 characters.');
+      if (!name.trim()) throw new Error('Give this place a name.');
+      if (name.length > 40) throw new Error('That name is too long. Try a shorter one.');
       if (!coordinate || !validCoordinates(coordinate.latitude, coordinate.longitude))
         throw new Error(
           'Search for an address, use your current location, or set the pin in the map.',
@@ -196,7 +197,8 @@ export default function LocationEditor() {
         ...coordinate,
         radius: 150,
         presetId: preset,
-        recipientId: recipient,
+        // Check-ins from this place go to your one person.
+        recipientId: '',
         enabled,
         departureReminder: departure,
       };
@@ -215,6 +217,16 @@ export default function LocationEditor() {
   return (
     <Screen
       modal
+      footer={
+        <Button
+          label="Save location"
+          onPress={save}
+          loading={busy}
+          // Nothing to save until something changes.
+          disabled={!!existing && !dirty}
+        />
+      }
+      message={{ text: error, error: true, onHide: () => setError('') }}
       title={existing ? existing.name : 'Add a place'}
       action={
         existing && (
@@ -339,33 +351,11 @@ export default function LocationEditor() {
           />
         ))}
       </View>
-      <Txt weight="bold" style={{ marginTop: 22, marginBottom: 12, fontSize: 13 }}>
-        Recipient
-      </Txt>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        <Chip label="Default person" active={!recipient} onPress={() => setRecipient('')} />
-        {app.people.map((c) => (
-          <Chip
-            key={c.id}
-            label={c.name}
-            active={recipient === c.id}
-            onPress={() => setRecipient(c.id)}
-          />
-        ))}
-      </View>
       <Section title="Smart Check-In" />
       <Row
         title="Remember this place"
         subtitle="Leaving it can start Smart Check-In on your Lock Screen. Needs Always Allow location. Where you are stays on this phone and is never shared."
         right={<Toggle value={enabled} onChange={setEnabled} label="Remember this place" />}
-      />
-      <Notice text={error} error />
-      <Button
-        label="Save location"
-        onPress={save}
-        loading={busy}
-        // Nothing to save until something changes.
-        disabled={!!existing && !dirty}
       />
       <ConfirmDialog
         visible={!!discard}
@@ -375,9 +365,10 @@ export default function LocationEditor() {
         cancelLabel="Keep editing"
         onCancel={() => setDiscard(null)}
         onConfirm={() => {
-          const action = discard;
+          // Turn the unsaved-changes guard off first, then close (see the effect above);
+          // closing straight away would be caught by the guard and ask again.
+          setDiscarded(discard);
           setDiscard(null);
-          if (action) navigation.dispatch(action);
         }}
       />
       {existing && (

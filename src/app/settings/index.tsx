@@ -4,17 +4,16 @@ import Constants from 'expo-constants';
 import {
   Bell,
   Clock,
+  Crown,
   HelpCircle,
   FlaskConical,
   MapPin,
-  Palette,
   Shield,
   SlidersHorizontal,
   Users,
   type LucideIcon,
 } from 'lucide-react-native';
-import { Avatar, IconButton, Notice, Screen, Txt } from '@/components/ui';
-import { PlusBanner } from '@/components/plus-banner';
+import { Avatar, IconButton, Screen, Txt } from '@/components/ui';
 import { useApp } from '@/state/app';
 import type { SettingsSection } from './[section]';
 type Tile = { title: string; icon?: LucideIcon; href: Href };
@@ -32,13 +31,14 @@ export default function Settings() {
     { title: 'Smart Check-In', icon: Bell, href: section('reminders') },
     { title: 'History', icon: Clock, href: '/history' },
     { title: 'Permissions', icon: SlidersHorizontal, href: section('permissions') },
-    { title: 'Appearance', icon: Palette, href: section('appearance') },
+    { title: 'Arrive Plus', icon: Crown, href: '/subscription' },
     { title: 'Privacy & data', icon: Shield, href: section('privacy') },
     { title: 'Help & support', icon: HelpCircle, href: section('support') },
   ];
   return (
     <Screen
       back
+      message={{ text: app.error, error: true, onHide: app.dismissError }}
       title="Settings"
       action={
         __DEV__ ? (
@@ -51,9 +51,7 @@ export default function Settings() {
         ) : undefined
       }
     >
-      <Notice text={app.error} error />
-      <PlusBanner />
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 22 }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
         {tiles.map((t) => {
           const Icon = t.icon;
           return (
@@ -100,7 +98,7 @@ export default function Settings() {
         })}
       </View>
       <Txt tone="muted" style={{ textAlign: 'center', marginTop: 25, fontSize: 12 }}>
-        Arrive {Constants.expoConfig?.version || '1.0.0'} · A little check-in. A lot of love.
+        Arrive {Constants.expoConfig?.version || '1.0.0'} · The fastest way to check in.
       </Txt>
     </Screen>
   );

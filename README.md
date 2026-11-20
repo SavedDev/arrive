@@ -1,6 +1,6 @@
 # Arrive
 
-A little check-in. A lot of love.
+The fastest way to check in.
 
 Arrive is a local-first Expo SDK 57 / React Native app. Save your person’s name and phone number, choose a pastel shortcut, and approve the prepared message in your phone’s native composer. The recipient gets a normal message and does not need Arrive. There is no login, cloud backup, or in-app inbox. An optional Cloudflare service supports paired Smart Reminders without receiving contacts, messages, presets, or history.
 

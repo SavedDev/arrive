@@ -1,30 +1,28 @@
 import { ActivityBannerPreview } from '@/components/activity-banner-preview';
 import { AttentionBorder } from '@/components/attention-border';
-import { BrandMark } from '@/components/brand-mark';
-import { useAccess } from '@/lib/access';
-import { LocationWarning } from '@/components/location-warning';
-import {
-  Avatar,
-  IconButton,
-  Notice,
-  PresetGrid,
-  Screen,
-  Section,
-  Txt,
-  Toast,
-  styles,
-} from '@/components/ui';
+import { LocationWarning, useAlwaysLocationOff } from '@/components/location-warning';
+import { ShareBanner } from '@/components/share-banner';
+import { Avatar, IconButton, PresetGrid, Screen, Section, styles, Txt } from '@/components/ui';
 import { comingPreset, useSendCheckIn } from '@/components/use-send-check-in';
+import { Wordmark } from '@/components/wordmark';
+import { useAccess } from '@/lib/access';
 import { activityPresets, activityShortcuts } from '@/lib/domain';
 import { hideSplash } from '@/lib/launch-splash';
 import { onSendRequest, telUrl } from '@/lib/send-request';
 import { useApp } from '@/state/app';
 import * as Haptics from 'expo-haptics';
 import { Redirect, router, useFocusEffect } from 'expo-router';
-import { MapPin, Plus, Settings2, ShieldCheck } from 'lucide-react-native';
+import { ChevronRight, MapPin, Plus, Settings2 } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  AppState,
+  Linking,
+  Pressable,
+  useWindowDimensions,
+  View,
+  type ViewInstance,
+} from 'react-native';
 import type { KeyboardAwareScrollViewRef } from 'react-native-keyboard-controller';
-import { AppState, Linking, Pressable, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 /**
@@ -44,12 +42,15 @@ function whenOnScreen(fn: () => void) {
 
 export default function Home() {
   const app = useApp();
-  const { colors, prefs, presets, people } = app;
+  const { colors, isDark, prefs, presets, people } = app;
   const [bannerDragging, setBannerDragging] = useState(false);
   const insets = useSafeAreaInsets();
   const access = useAccess();
   const bannerPresets = activityShortcuts(presets, prefs.activityPresetOrder);
   const checkIn = useSendCheckIn();
+  const [shareError, setShareError] = useState('');
+  const location = useAlwaysLocationOff();
+  const locationOff = location.off;
   const edit = (id: string) => router.push({ pathname: '/preset', params: { id } });
   // Sends asked for from outside Home: the Lock Screen reminder, the widget, a notification.
   const { send } = checkIn;
@@ -88,16 +89,20 @@ export default function Home() {
       }),
     [presets, people, prefs.defaultPreset, prefs.defaultRecipient, prefs.comingMessage, send],
   );
-  const defaultPerson = people.find((c) => c.id === prefs.defaultRecipient);
+  // Arrive keeps one person.
+  const defaultPerson = people[0];
   // Appearance slides down from the top, leaving the Lock Screen banner preview (at the bottom
   // of Home) in view, so changes show as they're made; the sheet draws an undimmed copy of the
   // preview right over it. If the preview is scrolled out of view, Home first brings it up to
   // the bottom of the screen, then glides back once the sheet has closed.
   const scroll = useRef<KeyboardAwareScrollViewRef>(null);
   const scrollY = useRef(0);
-  const preview = useRef<View>(null);
+  // How far Home can scroll at most: the preview is the last thing on it, so it may not be able
+  // to come all the way up.
+  const maxScrollY = useRef(0);
+  const preview = useRef<ViewInstance>(null);
   const restoreY = useRef<number | null>(null);
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   // Glides back to where Home was before Appearance opened.
   const restore = useCallback(() => {
     const y = restoreY.current;
@@ -114,8 +119,12 @@ export default function Home() {
     const node = preview.current;
     if (!node) return open({ room: String(Math.round(windowHeight * 0.6)) });
     node.measureInWindow((x, top, width, height) => {
-      // How far the preview's bottom sits below the visible screen, if at all.
-      const below = top + height - (windowHeight - insets.bottom - 12);
+      // How far the preview's bottom sits below the visible screen, if at all, and how far
+      // Home can actually scroll to bring it up.
+      const below = Math.min(
+        top + height - (windowHeight - insets.bottom - 12),
+        maxScrollY.current - scrollY.current,
+      );
       const y = top - Math.max(0, below);
       const params = {
         // The sheet may grow down to just above the preview.
@@ -123,12 +132,16 @@ export default function Home() {
         px: String(x),
         py: String(y),
         pw: String(width),
+        // Where the preview is now; the sheet's copy glides from here to py with Home's scroll.
+        p0: String(top),
       };
-      if (below <= 0) return open(params);
-      restoreY.current = scrollY.current;
-      scroll.current?.scrollTo({ y: scrollY.current + below, animated: true });
-      // Opens once the preview has arrived, so the sheet's copy lands right on it.
-      setTimeout(() => open(params), 320);
+      if (below > 0) {
+        restoreY.current = scrollY.current;
+        scroll.current?.scrollTo({ y: scrollY.current + below, animated: true });
+      }
+      // Opens straight away: the sheet's copy of the preview is placed where the preview is
+      // headed, and fades in with the backdrop while Home scrolls it into place underneath.
+      open(params);
     });
   };
   // If the sheet closed some other way, catch up once Home is back in front.
@@ -140,31 +153,22 @@ export default function Home() {
   if (access === 'none') return <Redirect href="/paywall" />;
   return (
     <Screen
+      message={{
+        text: checkIn.error || shareError || checkIn.note,
+        error: !!(checkIn.error || shareError),
+        onHide: () => {
+          setShareError('');
+          checkIn.clearError();
+          checkIn.clearNote();
+        },
+      }}
       scrollRef={scroll}
       onScrollY={(y) => (scrollY.current = y)}
+      onScrollRoom={(maxY) => (maxScrollY.current = maxY)}
       scrollEnabled={!bannerDragging}
-      overlay={
-        <Toast
-          text={checkIn.error}
-          onHide={checkIn.clearError}
-          duration={6000}
-          tone="warning"
-          dismissable
-          top={insets.top + 18}
-          enterDuration={80}
-        />
-      }
     >
       <View style={[styles.between, { marginBottom: 22 }]}>
-        <View style={styles.row}>
-          <BrandMark size={34} />
-          <Txt weight="display" style={{ fontSize: 25, letterSpacing: -1 }}>
-            arrive
-            <Txt tone="green" style={{ fontSize: 26 }}>
-              .
-            </Txt>
-          </Txt>
-        </View>
+        <Wordmark height={36} onDark={isDark} />
         <View style={[styles.row, { gap: 12 }]}>
           {/* History lives in Settings. Locations gets an orange accent so it stands out. */}
           <IconButton
@@ -182,6 +186,8 @@ export default function Home() {
           />
         </View>
       </View>
+      {/* Smart Check-In starts on its own; Home only speaks up when it can't. */}
+      {locationOff && <LocationWarning refresh={location.refresh} />}
       <Pressable
         accessibilityRole="button"
         onPress={() => router.push('/people')}
@@ -199,20 +205,8 @@ export default function Home() {
         })}
       >
         <View style={{ flexDirection: 'row' }}>
-          {people.length ? (
-            people.slice(0, 3).map((p, i) => (
-              <View
-                key={p.id}
-                style={{
-                  marginLeft: i ? -12 : 0,
-                  borderRadius: 18,
-                  borderWidth: 2,
-                  borderColor: colors.surface,
-                }}
-              >
-                <Avatar person={p} size={32} />
-              </View>
-            ))
+          {defaultPerson ? (
+            <Avatar person={defaultPerson} size={32} />
           ) : (
             <View
               style={{
@@ -236,20 +230,19 @@ export default function Home() {
             minimumFontScale={0.85}
             style={{ fontSize: 15, lineHeight: 21 }}
           >
-            {people.length
-              ? `Keeping ${people.length} ${people.length === 1 ? 'person' : 'people'} in the loop`
-              : 'Add your person'}
+            {defaultPerson ? defaultPerson.name : 'Add your person'}
           </Txt>
-          <Txt tone="muted" numberOfLines={1} style={{ fontSize: 12, lineHeight: 17 }}>
-            {defaultPerson
-              ? `${defaultPerson.name} is your default person`
-              : 'Someone you’d like to keep in the loop'}
+          <Txt
+            tone={defaultPerson ? 'green' : 'muted'}
+            numberOfLines={1}
+            style={{ fontSize: 12, lineHeight: 17 }}
+          >
+            {defaultPerson ? 'Gets your check-ins' : 'Someone you’d like to keep in the loop'}
           </Txt>
         </View>
+        <ChevronRight size={17} color={colors.muted} />
         {!people.length && <AttentionBorder />}
       </Pressable>
-      {/* Smart Check-In starts on its own; Home only speaks up when it can't. */}
-      <LocationWarning />
       <Section
         title="My check-ins"
         hint="Hold to edit"
@@ -265,6 +258,9 @@ export default function Home() {
       />
       <PresetGrid
         compact
+        paged
+        bleed={25}
+        onAdd={() => router.push('/preset')}
         presets={presets}
         actionLabel="Send"
         disabled={checkIn.busy}
@@ -276,6 +272,14 @@ export default function Home() {
       />
       {/* The Lock Screen banner sits at the bottom of Home. */}
       <View style={{ flex: 1, minHeight: 8 }} />
+      {/* When there's no location warning up top, the space goes to inviting someone. */}
+      {/* 95% of the screen's width: a little wider than the page's 25-point side padding. */}
+      {!locationOff && (
+        <ShareBanner
+          onError={setShareError}
+          style={{ marginBottom: 16, marginHorizontal: Math.min(0, windowWidth * 0.025 - 25) }}
+        />
+      )}
       <View ref={preview} collapsable={false}>
         <ActivityBannerPreview
           presets={bannerPresets}
@@ -292,21 +296,6 @@ export default function Home() {
             void app.updatePrefs({ activityPresetOrder: [...shownIds, ...remainder] });
           }}
         />
-      </View>
-      <Notice text={checkIn.note} />
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 6,
-          marginTop: 22,
-        }}
-      >
-        <ShieldCheck size={12} color={colors.muted} />
-        <Txt tone="muted" style={{ fontSize: 10 }}>
-          A check-in, never a tracking app.
-        </Txt>
       </View>
     </Screen>
   );

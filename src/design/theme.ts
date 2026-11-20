@@ -27,12 +27,12 @@ export const dark: typeof light = {
   subtle: '#23372B',
 };
 export const accents = {
-  peach: { bg: '#FAEDE4', ink: '#A56948', dark: '#45352B' },
-  mint: { bg: '#E7F1E8', ink: '#4E8365', dark: '#293E30' },
-  sky: { bg: '#E8F0F7', ink: '#6086A6', dark: '#293846' },
-  lavender: { bg: '#EEEBF8', ink: '#8573AB', dark: '#393047' },
-  cream: { bg: '#FAF1DB', ink: '#A68642', dark: '#443D2A' },
-  rose: { bg: '#F6EAEA', ink: '#AD797D', dark: '#463033' },
+  peach: { bg: '#FBE5D6', ink: '#A56948', dark: '#4E3629' },
+  mint: { bg: '#DDEFDF', ink: '#4E8365', dark: '#264530' },
+  sky: { bg: '#DEEAF7', ink: '#6086A6', dark: '#253D52' },
+  lavender: { bg: '#E7E1F8', ink: '#8573AB', dark: '#3E2F52' },
+  cream: { bg: '#FBEDC9', ink: '#A68642', dark: '#4C4226' },
+  rose: { bg: '#F7DFE0', ink: '#AD797D', dark: '#523035' },
 };
 export const fonts = {
   body: 'DMSans_400Regular',

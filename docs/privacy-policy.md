@@ -10,7 +10,7 @@ This policy explains what Arrive keeps on your phone, what leaves it, who handle
 
 Most of what you put into Arrive is stored only on your device:
 
-- **Your people:** the names and phone numbers you add, typed in, picked from Contacts or scanned from a QR code.
+- **Your person:** the name and phone number of the one person you add, typed in, picked from Contacts or scanned from a QR code.
 - **Your check-ins:** their names, icons and message text.
 - **Your places:** the places you ask Arrive to remember, with their addresses and map coordinates.
 - **Your history:** recent check-ins you've sent, which expire after 72 hours.
@@ -77,7 +77,7 @@ Arrive Plus is sold through the App Store. Apple handles payment, and Arrive nev
 - your purchase and subscription history;
 - basic technical details, such as your device model, system version, app version and IP address.
 
-Restore Purchases uses your App Store account, and it doesn't restore your people, places or history.
+Restore Purchases uses your App Store account, and it doesn't restore your person, places or history.
 
 ### Sharing your contact details by QR code
 

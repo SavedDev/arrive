@@ -1,16 +1,16 @@
-import { useEffect, useState, type ComponentType } from 'react';
-import { Linking, Platform, Pressable, View } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
-import type { PurchasesPackage } from 'react-native-purchases';
-import { Bell, Check, Smartphone } from 'lucide-react-native';
-import Svg, { Path } from 'react-native-svg';
 import { PlusHeroArt } from '@/components/paywall-art';
 import { Button, Notice, Screen, Txt } from '@/components/ui';
-import { acceptCustomerInfo, setQaBypass, useAccess } from '@/lib/access';
+import { acceptCustomerInfo, useAccess } from '@/lib/access';
 import { errorMessage } from '@/lib/domain';
 import { trialLabel, yearlySavings } from '@/lib/paywall';
 import { entitlement, purchases } from '@/lib/purchases';
 import { useApp } from '@/state/app';
+import { router, useLocalSearchParams } from 'expo-router';
+import { Bell, Check, Smartphone } from 'lucide-react-native';
+import { useEffect, useState, type ComponentType } from 'react';
+import { Linking, Platform, Pressable, View } from 'react-native';
+import type { PurchasesPackage } from 'react-native-purchases';
+import Svg, { Path } from 'react-native-svg';
 
 type Plan = 'monthly' | 'yearly';
 type FeatureIcon = ComponentType<{ size: number; color: string; strokeWidth: number }>;
@@ -50,7 +50,7 @@ const FEATURES: { icon: FeatureIcon; tint: 'mint' | 'lavender' | 'cream'; title:
 /**
  * Arrive Plus: a free trial or a subscription is needed to use Arrive. Shown after onboarding,
  * and whenever access lapses. There's no way past it except through the store (and, in
- * development builds only, the QA bypass).
+ * development builds only, the trial preview, which can't buy anything).
  */
 export default function Paywall() {
   const app = useApp();
@@ -72,6 +72,8 @@ export default function Paywall() {
     [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
+    // The plans couldn't be loaded: offers Try again, after the error banner has gone.
+    [loadFailed, setLoadFailed] = useState(false),
     [note, setNote] = useState('');
 
   const apply = (r: Plans) => {
@@ -79,6 +81,7 @@ export default function Paywall() {
     setTrialEligible(r.eligible);
     if (!r.packages.yearly && r.packages.monthly) setPlan('monthly');
     setError(r.error);
+    setLoadFailed(!!r.error);
     setLoading(false);
   };
   useEffect(() => {
@@ -163,14 +166,24 @@ export default function Paywall() {
 
   const priceLine = (pkg: PurchasesPackage | null, per: string) =>
     pkg ? `${pkg.product.priceString}/${per}` : loading ? '…' : '—';
-  const finePrint = selected
-    ? trial
-      ? `${trial}, then ${selected.product.priceString} per ${plan === 'yearly' ? 'year' : 'month'}.`
-      : `${selected.product.priceString} per ${plan === 'yearly' ? 'year' : 'month'}.`
-    : '';
+  // Under the plans: what the selected plan costs, after its free trial when there is one.
+  const afterTrial = selected
+    ? {
+        price: `${selected.product.priceString} per ${plan === 'yearly' ? 'year' : 'month'}`,
+        monthly: plan === 'yearly' ? selected.product.pricePerMonthString : null,
+      }
+    : null;
 
   return (
     <Screen
+      message={{
+        text: error || note,
+        error: !!error,
+        onHide: () => {
+          setError('');
+          setNote('');
+        },
+      }}
       footer={
         <View style={{ gap: 10 }}>
           <Button
@@ -193,32 +206,17 @@ export default function Paywall() {
                   muted
                 />
               ) : (
-                <>
-                  <FooterLink
-                    label="Preview trial"
-                    onPress={() => router.setParams({ preview: 'trial' })}
-                    muted
-                  />
-                  <FooterLink label="QA bypass" onPress={() => void setQaBypass(true)} muted />
-                </>
+                <FooterLink
+                  label="Preview trial"
+                  onPress={() => router.setParams({ preview: 'trial' })}
+                  muted
+                />
               ))}
           </View>
         </View>
       }
     >
       <PlusHeroArt />
-      <View style={{ alignItems: 'center', marginTop: 4 }}>
-        <Txt weight="display" style={{ fontSize: 38, lineHeight: 46, textAlign: 'center' }}>
-          Arrive Plus
-        </Txt>
-        <Txt
-          tone="muted"
-          style={{ fontSize: 16, lineHeight: 22, textAlign: 'center', marginTop: 4 }}
-        >
-          {/* Broken by hand, so the second line isn't left with a word or two. */}
-          {'Never forget to check in again, and\ndo it faster than ever.'}
-        </Txt>
-      </View>
 
       <View style={{ flexDirection: 'row', marginTop: 24 }}>
         {FEATURES.map(({ icon: Icon, tint, title }, i) => (
@@ -247,11 +245,18 @@ export default function Paywall() {
         ))}
       </View>
 
-      <View style={{ gap: 12, marginTop: 24 }}>
+      {/* Room above each card for its floating badge */}
+      <View style={{ gap: 20, marginTop: 40 }}>
         <PlanCard
           title="Yearly"
           price={priceLine(packages.yearly, 'yr')}
           badge={trialFor('yearly') ?? (savings ? `Save ${savings}%` : undefined)}
+          // What a year works out to each month, as the App Store works it out.
+          aside={
+            packages.yearly?.product.pricePerMonthString
+              ? `Just ${packages.yearly.product.pricePerMonthString}/mo`
+              : undefined
+          }
           selected={plan === 'yearly'}
           disabled={!packages.yearly}
           onPress={() => setPlan('yearly')}
@@ -266,15 +271,14 @@ export default function Paywall() {
         />
       </View>
 
-      <Notice text={error} error />
-      <Notice text={note} />
-      {!!error && (
+      {loadFailed && (
         <Button
           label="Try again"
           variant="ghost"
           onPress={() => {
             setLoading(true);
             setError('');
+            setLoadFailed(false);
             void fetchPlans().then(apply);
           }}
           disabled={loading}
@@ -283,15 +287,21 @@ export default function Paywall() {
       {!privacyUrl && !__DEV__ && (
         <Notice text="Subscriptions open once Arrive’s privacy policy is published." />
       )}
-      {!!finePrint && (
-        <Txt
-          tone="muted"
-          style={{ fontSize: 11, lineHeight: 16, textAlign: 'center', marginTop: 14 }}
-        >
-          {finePrint} Renews automatically until canceled. Cancel anytime in{' '}
-          {Platform.OS === 'ios' ? 'Settings › Apple Account › Subscriptions' : 'Google Play'}, at
-          least 24 hours before the period ends.
-        </Txt>
+      {afterTrial && (
+        <View style={{ alignItems: 'center', marginTop: 14 }}>
+          {/* Two lines: the trial (if any) and price, then the monthly equivalent and the terms. */}
+          <Txt style={{ fontSize: 14, lineHeight: 20, textAlign: 'center' }}>
+            {!!trial && `${trial}, then `}
+            <Txt weight="bold" style={{ fontSize: 14 }}>
+              {afterTrial.price}
+            </Txt>
+          </Txt>
+          <Txt tone="muted" style={{ fontSize: 13, lineHeight: 19, textAlign: 'center' }}>
+            {[afterTrial.monthly && `${afterTrial.monthly}/month`, 'Cancel anytime']
+              .filter(Boolean)
+              .join(' · ')}
+          </Txt>
+        </View>
       )}
     </Screen>
   );
@@ -347,6 +357,7 @@ function PlanCard({
   title,
   price,
   badge,
+  aside,
   selected,
   disabled,
   onPress,
@@ -354,6 +365,8 @@ function PlanCard({
   title: string;
   price: string;
   badge?: string;
+  /** A note on the right of the card, such as what a year costs per month. */
+  aside?: string;
   selected: boolean;
   disabled: boolean;
   onPress: () => void;
@@ -362,7 +375,7 @@ function PlanCard({
   return (
     <Pressable
       accessibilityRole="radio"
-      accessibilityLabel={`${title}, ${price}${badge ? `, ${badge}` : ''}`}
+      accessibilityLabel={[title, price, aside, badge].filter(Boolean).join(', ')}
       accessibilityState={{ selected, disabled }}
       aria-checked={selected}
       disabled={disabled}
@@ -404,18 +417,29 @@ function PlanCard({
           {price}
         </Txt>
       </View>
+      {/* On the right: what a year works out to each month */}
+      {!!aside && (
+        <Txt weight="medium" style={{ fontSize: 14, lineHeight: 19 }}>
+          {aside}
+        </Txt>
+      )}
+      {/* Floating over the card's top-right corner, overlapping its edge */}
       {!!badge && (
         <View
+          pointerEvents="none"
           style={{
-            paddingHorizontal: 12,
-            paddingVertical: 7,
-            borderRadius: 14,
+            position: 'absolute',
+            top: -12,
+            right: 16,
+            paddingHorizontal: 10,
+            paddingVertical: 4,
+            borderRadius: 12,
             backgroundColor: isDark ? '#4A3F22' : '#F6E3A9',
           }}
         >
           <Txt
             weight="bold"
-            style={{ fontSize: 13, lineHeight: 17, color: isDark ? '#F2D071' : '#5E4A14' }}
+            style={{ fontSize: 12, lineHeight: 16, color: isDark ? '#F2D071' : '#5E4A14' }}
           >
             {badge.replace(/^./, (c) => c.toUpperCase())}
           </Txt>

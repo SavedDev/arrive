@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Platform, Share, View } from 'react-native';
+import { Platform, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { Button, Chip, Field, Notice, Row, Screen, Toggle, Txt } from '@/components/ui';
 import { encodePerson, validatePerson } from '@/lib/people';
 import { errorMessage } from '@/lib/domain';
+import { share } from '@/lib/share';
 import { useApp } from '@/state/app';
 import {
   createSmartInvite,
@@ -66,7 +67,12 @@ export default function ShareQR() {
   }, [waiting]);
   const partner = app.people.find((p) => p.id === pairWith);
   return (
-    <Screen modal title="Share My QR" subtitle="A simple way to share your contact details.">
+    <Screen
+      modal
+      title="Share My QR"
+      subtitle="A simple way to share your contact details."
+      message={{ text: error, error: true, onHide: () => setError('') }}
+    >
       <Field
         label="Your name"
         value={name}
@@ -140,7 +146,6 @@ export default function ShareQR() {
       {smart && (
         <Notice text="If the other person accepts, each phone sends only its latest approximate location and time to Arrive's Cloudflare service. Each new location replaces the previous one. Your contact, phone number, messages, presets, and check-in history are never uploaded." />
       )}
-      <Notice text={error} error />
       <Button
         label="Create my QR"
         disabled={!consent}
@@ -168,7 +173,7 @@ export default function ShareQR() {
             variant="secondary"
             onPress={() => {
               const clean = validatePerson({ name, phone });
-              void Share.share({ message: `${clean.name}\n${clean.phone}` }).catch((e) =>
+              void share({ message: `${clean.name}\n${clean.phone}` }).catch((e) =>
                 setError(errorMessage(e)),
               );
             }}

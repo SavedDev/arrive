@@ -1,28 +1,15 @@
 import { Image } from 'expo-image';
 
-const icon = require('../../assets/images/arrive-icon.png');
+// The logo on its own, where there's no name beside it. It always stands alone: never on a tile
+// or a white background. With the name, use Wordmark.
 const mark = require('../../assets/images/arrive-splash.png');
-const monochrome = require('../../assets/images/arrive-monochrome.png');
 
-export function BrandMark({
-  size = 32,
-  variant = 'icon',
-  color = '#FFFFFF',
-}: {
-  size?: number;
-  variant?: 'icon' | 'mark' | 'monochrome';
-  color?: string;
-}) {
+export function BrandMark({ size = 32 }: { size?: number }) {
   return (
     <Image
-      source={variant === 'icon' ? icon : variant === 'mark' ? mark : monochrome}
+      source={mark}
       contentFit="contain"
-      tintColor={variant === 'monochrome' ? color : undefined}
-      style={{
-        width: size,
-        height: size,
-        borderRadius: variant === 'icon' ? Math.round(size * 0.24) : 0,
-      }}
+      style={{ width: size, height: size }}
       accessibilityIgnoresInvertColors
     />
   );

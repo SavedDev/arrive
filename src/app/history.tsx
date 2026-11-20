@@ -7,7 +7,6 @@ import {
   ConfirmDialog,
   Empty,
   IconButton,
-  Notice,
   PresetIcon,
   Screen,
   Section,
@@ -18,7 +17,7 @@ import { useApp } from '@/state/app';
 import { historyDay, recentHistory } from '@/lib/history';
 import { errorMessage } from '@/lib/domain';
 export default function History() {
-  const { history, refreshHistory, clearHistory, error, colors } = useApp();
+  const { history, refreshHistory, clearHistory, error, dismissError, colors } = useApp();
   const [confirm, setConfirm] = useState(false),
     [busy, setBusy] = useState(false),
     [failure, setFailure] = useState('');
@@ -31,6 +30,14 @@ export default function History() {
   return (
     <Screen
       modal
+      message={{
+        text: error || failure,
+        error: true,
+        onHide: () => {
+          dismissError();
+          setFailure('');
+        },
+      }}
       title="History"
       action={
         entries.length > 0 && (
@@ -43,7 +50,6 @@ export default function History() {
         )
       }
     >
-      <Notice text={error || failure} error />
       {!entries.length ? (
         <Empty
           icon={Clock}

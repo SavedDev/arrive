@@ -138,60 +138,32 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
       ]}
     />
   );
+  // The logo and name exactly as in Arrive (assets/brand/arrive-wordmark.png), with the line
+  // under it starting where the name starts and tucked up under it. Widths and the name's start
+  // come from assets/brand/wordmark-geometry.json (×30pt); widgets can't import it.
   const header = (
     <HStack spacing={10}>
-      {done ? (
+      <VStack alignment="leading" spacing={-4}>
         <Image
-          systemName="checkmark"
-          color="#FFFFFF"
-          size={15}
-          modifiers={[
-            frame({ width: 32, height: 32 }),
-            background('#287B5A'),
-            clipShape('roundedRectangle', 9),
-          ]}
-        />
-      ) : (
-        <Image
-          assetName="ArriveActivityIcon"
+          assetName={dark ? 'ArriveWordmarkDark' : 'ArriveWordmark'}
           modifiers={[
             resizable(),
             aspectRatio({ contentMode: 'fit' }),
-            frame({ width: 32, height: 32 }),
-            clipShape('roundedRectangle', 9),
+            frame({ width: 76.3, height: 30 }),
           ]}
         />
-      )}
-      <VStack alignment="leading" spacing={1}>
-        <HStack spacing={0}>
-          <Text
-            modifiers={[
-              font({ size: 17, weight: 'heavy', design: 'rounded' }),
-              foregroundStyle(ink),
-            ]}
-          >
-            arrive
-          </Text>
-          <Text
-            modifiers={[
-              font({ size: 17, weight: 'heavy', design: 'rounded' }),
-              foregroundStyle(green),
-            ]}
-          >
-            .
-          </Text>
-        </HStack>
-        <Text modifiers={[font({ size: 12 }), foregroundStyle(muted), lineLimit(1)]}>
+        <Text
+          modifiers={[
+            font({ size: 12 }),
+            foregroundStyle(muted),
+            lineLimit(1),
+            padding({ leading: 29.4 }),
+          ]}
+        >
           {props.title}
         </Text>
       </VStack>
       <Spacer />
-      {!glass && !done && (
-        <HStack spacing={2} modifiers={[padding({ trailing: 6 })]}>
-          <Image systemName="leaf.fill" color={dark ? '#6FA884' : '#8DBE8F'} size={13} />
-          <Image systemName="sun.max.fill" color="#E9B949" size={18} />
-        </HStack>
-      )}
       {!done && !places.length && checkIn}
       {call}
       {!done && dismiss}
@@ -338,7 +310,7 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
   return {
     banner: (
       <VStack
-        spacing={12}
+        spacing={8}
         modifiers={[
           padding({ horizontal: 14, vertical: 12 }),
           activityBackgroundTint(glass ? '#101A16B3' : dark ? '#17241F' : '#FCFCF8'),
@@ -379,7 +351,7 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
     ),
     expandedCenter: (
       <Text modifiers={[font({ size: 15, weight: 'semibold', design: 'rounded' }), lineLimit(1)]}>
-        {done ? 'Check-in sent' : 'Where did you make it to?'}
+        {done ? 'Check-in sent' : props.title}
       </Text>
     ),
     expandedTrailing: done ? undefined : call ? (

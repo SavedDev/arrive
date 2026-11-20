@@ -2,10 +2,12 @@ import type { Place, Preset, Visit } from './types';
 export const suggestedMessage = (name: string) =>
   name.trim() ? `I've arrived at ${name.trim()}! ❤️` : "I've arrived safely! ❤️";
 export function validatePreset(p: Pick<Preset, 'name' | 'message'>) {
-  if (!p.name.trim() || p.name.trim().length > 40)
-    throw new Error('Give your check-in a name of 1–40 characters.');
-  if (!p.message.trim() || p.message.trim().length > 500)
-    throw new Error('Write a message of 1–500 characters.');
+  // The fields cap their own length, so these speak to what's missing, not to character counts.
+  if (!p.name.trim()) throw new Error('Give your check-in a name.');
+  if (p.name.trim().length > 40) throw new Error('That name is too long. Try a shorter one.');
+  if (!p.message.trim()) throw new Error('Write a message for your check-in.');
+  if (p.message.trim().length > 500)
+    throw new Error('That message is too long. Try a shorter one.');
 }
 export const sortedPresets = (p: Preset[]) =>
   [...p].sort(

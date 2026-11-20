@@ -10,8 +10,8 @@ type NativeComposer = {
 export function createComposer(native: NativeComposer) {
   return singleFlight(async (phone: string, text: string): Promise<ComposerResult> => {
     const address = normalizePhone(phone);
-    if (!text.trim() || text.trim().length > 500)
-      throw new Error('Write a message of 1–500 characters.');
+    if (!text.trim()) throw new Error('Write a message for your check-in.');
+    if (text.trim().length > 500) throw new Error('That message is too long. Try a shorter one.');
     if (!(await native.isAvailableAsync()))
       throw new Error(
         'Messaging is unavailable on this device. Open Arrive on a phone with messaging set up. Your check-in has not been sent.',

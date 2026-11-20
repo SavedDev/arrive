@@ -1,5 +1,11 @@
 import * as storage from './storage';
-import { initialPreferences, initialPresets, type Place, type Preferences } from './types';
+import {
+  initialPreferences,
+  initialPresets,
+  type Person,
+  type Place,
+  type Preferences,
+} from './types';
 
 // Preserve custom shortcuts and places when upgrading the earlier prototype.
 // Old account IDs and server messages are never interpreted as local people or native sends.
@@ -108,5 +114,32 @@ export async function migrateLocalData() {
     if (!prefs.onboardingDone)
       await storage.write('preferences', { ...prefs, onboardingDone: true });
   }
-  await storage.write('local-version', 7);
+  if (version < 8) {
+    // Arrive now keeps one person. Keep the default person (or else the first) and remove the
+    // rest; check-ins and places that named someone go to the kept person.
+    const people = await storage.read<Person[]>('people', []);
+    const prefs = await storage.read<Preferences>('preferences', initialPreferences);
+    const kept = people.find((p) => p.id === prefs.defaultRecipient) ?? people[0];
+    if (people.length > 1 || (kept && prefs.defaultRecipient !== kept.id)) {
+      await storage.write('people', kept ? [kept] : []);
+      // A pairing belonged to someone who was removed: Smart Reminders end with them.
+      const pairingRemoved = people.some((p) => p.smartPaired && p.id !== kept?.id);
+      await storage.write('preferences', {
+        ...prefs,
+        defaultRecipient: kept?.id ?? '',
+        ...(pairingRemoved ? { smartReminders: false } : {}),
+      });
+    }
+    const presets = await storage.read('presets', initialPresets);
+    await storage.write(
+      'presets',
+      presets.map((p) => ({ ...p, recipientId: '' })),
+    );
+    const places = await storage.read<Place[]>('places', []);
+    await storage.write(
+      'places',
+      places.map((p) => ({ ...p, recipientId: '' })),
+    );
+  }
+  await storage.write('local-version', 8);
 }

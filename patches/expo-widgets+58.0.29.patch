@@ -1,5 +1,5 @@
 diff --git a/node_modules/expo-widgets/ios/Widgets/AppIntent.swift b/node_modules/expo-widgets/ios/Widgets/AppIntent.swift
-index 972fa4f..cfb93d2 100644
+index 1730fff..fd3f747 100644
 --- a/node_modules/expo-widgets/ios/Widgets/AppIntent.swift
 +++ b/node_modules/expo-widgets/ios/Widgets/AppIntent.swift
 @@ -1,3 +1,4 @@

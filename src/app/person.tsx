@@ -10,11 +10,10 @@ import {
   Field,
   IconButton,
   Notice,
-  Row,
   Screen,
-  Toggle,
   goBack,
 } from '@/components/ui';
+import { useReplacePerson } from '@/components/replace-person';
 import { useApp } from '@/state/app';
 import { errorMessage } from '@/lib/domain';
 export default function PersonEditor() {
@@ -30,21 +29,22 @@ export default function PersonEditor() {
   const [localId] = useState(() => existing?.id || Crypto.randomUUID());
   const [name, setName] = useState(existing?.name || params.name || ''),
     [phone, setPhone] = useState(existing?.phone || params.phone || '');
-  const [makeDefault, setDefault] = useState(
-    existing ? app.prefs.defaultRecipient === existing.id : !app.prefs.defaultRecipient,
-  );
-  const [error, setError] = useState(
-      params.fix === '1'
-        ? 'Arrive couldn’t read this contact’s number. Add the country code, then save.'
-        : '',
-    ),
+  // Arrive keeps one person: adding someone new replaces them, after asking.
+  const replace = useReplacePerson();
+  // Guidance for fixing a picked contact's number: on the page from the start, so nothing moves.
+  const fixHint =
+    params.fix === '1'
+      ? 'Arrive couldn’t read this contact’s number. Add the country code, then save.'
+      : '';
+  const [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
     [deleting, setDeleting] = useState(false);
   async function save() {
     setBusy(true);
     setError('');
     try {
-      await app.savePerson({ id: localId, name, phone, photo: existing?.photo }, makeDefault);
+      if (!existing && !(await replace.confirm(name.trim() || 'this person'))) return;
+      await app.savePerson({ id: localId, name, phone, photo: existing?.photo });
       goBack();
     } catch (e) {
       setError(errorMessage(e));
@@ -55,7 +55,15 @@ export default function PersonEditor() {
   return (
     <Screen
       modal
-      title={existing ? 'Your person' : 'Add a person'}
+      footer={
+        <Button
+          label={existing ? 'Save person' : 'Confirm and save person'}
+          onPress={save}
+          loading={busy}
+        />
+      }
+      message={{ text: error, error: true, onHide: () => setError('') }}
+      title={existing ? 'Your person' : replace.current ? 'Change your person' : 'Add your person'}
       action={
         existing && (
           <IconButton
@@ -72,6 +80,7 @@ export default function PersonEditor() {
           <Avatar person={{ name: name || existing.name, photo: existing.photo }} size={84} />
         </View>
       )}
+      <Notice text={fixHint} error />
       <Field label="Person’s name" value={name} onChangeText={setName} maxLength={50} />
       <Field
         label="Phone number"
@@ -82,21 +91,12 @@ export default function PersonEditor() {
         placeholder="+1 312 555 0123"
       />
       <Notice text="Include the country code. Double-check this is the person you intend to message; Arrive does not verify their identity or ownership of this number." />
-      <Row
-        title="Make my default person"
-        right={<Toggle label="Make my default person" value={makeDefault} onChange={setDefault} />}
-      />
-      <Notice text={error} error />
-      <Button
-        label={existing ? 'Save person' : 'Confirm and save person'}
-        onPress={save}
-        loading={busy}
-      />
+      {replace.dialog}
       {existing && (
         <ConfirmDialog
           visible={deleting}
           title={`Remove ${existing.name}?`}
-          message={`Saved check-ins and places will use your default person. Existing history expires after 3 days.${existing.smartPaired ? ' This also ends Smart Reminders with them.' : ''}`}
+          message={`Your check-ins won’t have anyone to go to until you add someone. Existing history expires after 3 days.${existing.smartPaired ? ' This also ends Smart Reminders with them.' : ''}`}
           confirmLabel="Yes, remove"
           busy={busy}
           onCancel={() => setDeleting(false)}

@@ -41,7 +41,7 @@ export default function Widget() {
             marginTop: 23,
           }}
         >
-          <BrandMark size={50} variant="icon" />
+          <BrandMark size={50} />
         </View>
         <Txt tone="green" style={{ fontSize: 10, marginTop: 7 }}>
           Check In

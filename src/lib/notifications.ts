@@ -27,6 +27,9 @@ export async function enableNotifications() {
   if (Platform.OS === 'android')
     await Notifications.setNotificationChannelAsync('check-ins', {
       name: 'Check-ins',
+      // Exported by expo-notifications (and type-checked), but ESLint's import plugin can't
+      // read the enum from the package's SDK 58 build output.
+      // eslint-disable-next-line import/namespace
       importance: Notifications.AndroidImportance.DEFAULT,
     });
   if (!(await Notifications.requestPermissionsAsync()).granted)

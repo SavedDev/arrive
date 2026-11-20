@@ -10,8 +10,8 @@ import { AppState, Linking, Platform, Pressable, View } from 'react-native';
  * Smart Check-In starts on its own when you leave a place, which needs Always location. When
  * that's off, Home says so plainly and offers the fix. Manual check-ins still work either way.
  */
-export function LocationWarning() {
-  const { colors, prefs, places } = useApp();
+export function useAlwaysLocationOff() {
+  const { prefs } = useApp();
   const [always, setAlways] = useState<boolean | null>(null);
   const refresh = useCallback(() => {
     void Location.getBackgroundPermissionsAsync()
@@ -27,7 +27,12 @@ export function LocationWarning() {
     });
     return () => sub.remove();
   }, [refresh]);
-  if (Platform.OS === 'web' || !prefs.smartCheckIn || always !== false) return null;
+  return { off: Platform.OS !== 'web' && prefs.smartCheckIn && always === false, refresh };
+}
+
+/** Shown only while useAlwaysLocationOff() says so; Home decides. */
+export function LocationWarning({ refresh }: { refresh: () => void }) {
+  const { colors, places } = useApp();
 
   async function fix() {
     try {
@@ -54,7 +59,8 @@ export function LocationWarning() {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,
-        marginTop: 14,
+        // It sits above the person card on Home.
+        marginBottom: 14,
         padding: 14,
         borderRadius: 20,
         backgroundColor: colors.softOrange,

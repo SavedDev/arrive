@@ -1,3 +1,9 @@
+import { presetIcons } from '@/design/icons';
+import { accents } from '@/design/theme';
+import { NAME_BLANK } from '@/lib/reminder-runtime';
+import type { Preferences, Preset } from '@/lib/types';
+import { useApp } from '@/state/app';
+import { Palette, Phone, X } from 'lucide-react-native';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -9,12 +15,8 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated';
 import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets';
-import { Leaf, Palette, Phone, Sun } from 'lucide-react-native';
-import { presetIcons } from '@/design/icons';
-import { accents } from '@/design/theme';
-import type { Preferences, Preset } from '@/lib/types';
-import { BrandMark } from './brand-mark';
 import { Txt } from './ui';
+import { Wordmark, WORDMARK } from './wordmark';
 
 function DraggableIcon({
   preset,
@@ -99,9 +101,9 @@ function DraggableIcon({
           translateX: heldPreset
             ? heldX.get()
             : withTiming((held >= 0 ? restingIndex : index) * slot + shift, {
-                duration: 105,
-                easing: Easing.out(Easing.cubic),
-              }),
+              duration: 105,
+              easing: Easing.out(Easing.cubic),
+            }),
         },
       ],
     };
@@ -193,8 +195,10 @@ export function ActivityBannerPreview({
   onAppearance: () => void;
   onDragChange: (dragging: boolean) => void;
 }) {
+  const { people, prefs } = useApp();
+  // As on the Lock Screen: who the check-in goes to, when there's someone to name.
+  const person = people.find((c) => c.id === prefs.defaultRecipient)?.name.trim();
   const glass = design === 'glass';
-  const ink = glass ? '#F0F5ED' : '#293D36';
   const muted = glass ? '#ADBFB1' : '#68766D';
   const [items, setItems] = useState(presets);
   // The icon row sits inside the banner card's border and padding.
@@ -263,7 +267,7 @@ export function ActivityBannerPreview({
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <View>
           <Txt weight="rounded" style={{ fontSize: 17 }}>
-            Lock Screen banner
+            Lock Screen banner preview
           </Txt>
           <Txt tone="muted" style={{ fontSize: 12 }}>
             Drag the icons to reorder them
@@ -284,7 +288,8 @@ export function ActivityBannerPreview({
           marginTop: 10,
           borderRadius: 28,
           padding: CARD_PADDING,
-          gap: 10,
+          // Tight under the header: the icon row has a little room of its own above the tiles.
+          gap: 4,
           backgroundColor: glass ? '#101A16' : '#FCFCF8',
           borderWidth: CARD_BORDER,
           borderColor: glass ? '#34483C' : '#E8EBE4',
@@ -295,21 +300,24 @@ export function ActivityBannerPreview({
         }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <BrandMark size={32} />
+          {/* As on the Lock Screen: the logo and name, with the line under it starting where the
+              name starts and tucked up under it. */}
           <View style={{ flex: 1 }}>
-            <Txt weight="display" style={{ color: ink, fontSize: 17, lineHeight: 19 }}>
-              arrive<Txt style={{ color: glass ? '#82CBA4' : '#287B5A', fontSize: 17 }}>.</Txt>
-            </Txt>
-            <Txt numberOfLines={1} style={{ color: muted, fontSize: 12, lineHeight: 16 }}>
-              Where did you make it to?
+            <Wordmark height={30} onDark={glass} />
+            {/* Three dots stand in until someone is added. */}
+            <Txt
+              numberOfLines={1}
+              style={{
+                color: muted,
+                fontSize: 12,
+                lineHeight: 16,
+                marginTop: -4,
+                marginLeft: 30 * WORDMARK.nameStart,
+              }}
+            >
+              Check in with {person || NAME_BLANK}
             </Txt>
           </View>
-          {!glass && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-              <Leaf size={14} color="#8DBE8F" fill="#8DBE8F" />
-              <Sun size={19} color="#E9B949" fill="#E9B949" />
-            </View>
-          )}
           {showCall && (
             <View
               accessibilityLabel="Call button"
@@ -329,6 +337,20 @@ export function ActivityBannerPreview({
               />
             </View>
           )}
+          {/* ✕, as on the Lock Screen (it ends the reminder there) */}
+          <View
+            accessibilityLabel="Dismiss button"
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 14,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: glass ? '#FFFFFF1A' : '#EEF2EC',
+            }}
+          >
+            <X size={13} color={muted} strokeWidth={2.4} />
+          </View>
         </View>
         <View
           onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}

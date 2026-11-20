@@ -1,16 +1,21 @@
-import { useEffect, useState } from 'react';
-import { AppState, Linking, Platform, View } from 'react-native';
-import type { CustomerInfo, PurchasesPackage } from 'react-native-purchases';
-import { Check, Heart, RefreshCw } from 'lucide-react-native';
-import { Button, Card, Notice, Screen, Txt } from '@/components/ui';
-import { HappySun } from '@/components/illustrations';
-import { useApp } from '@/state/app';
-import { entitlement, purchases } from '@/lib/purchases';
+import { PlusHeroArt } from '@/components/paywall-art';
+import { Button, Card, Screen, Txt } from '@/components/ui';
+import { acceptCustomerInfo } from '@/lib/access';
 import { errorMessage } from '@/lib/domain';
+import { entitlement, purchases } from '@/lib/purchases';
+import { RefreshCw } from 'lucide-react-native';
+import { useEffect, useState } from 'react';
+import { AppState, Linking, Platform, Pressable, View } from 'react-native';
+import type { CustomerInfo, PurchasesOffering } from 'react-native-purchases';
+
+/**
+ * Settings → Arrive Plus: the plan you're on and when it renews, with the ways to manage it.
+ * Everyone past the paywall has Arrive Plus, so there's nothing to buy here.
+ */
 export default function Subscription() {
-  const app = useApp();
-  const [offer, setOffer] = useState<PurchasesPackage | null>(null),
-    [info, setInfo] = useState<CustomerInfo | null>(null),
+  const [info, setInfo] = useState<CustomerInfo | null>(null),
+    [offering, setOffering] = useState<PurchasesOffering | null>(null),
+    [loading, setLoading] = useState(true),
     [error, setError] = useState(''),
     [note, setNote] = useState(''),
     [busy, setBusy] = useState(false);
@@ -19,14 +24,16 @@ export default function Subscription() {
     let unsubscribe: (() => void) | undefined;
     (async () => {
       const p = await purchases();
-      const [offers, customer] = await Promise.all([p.getOfferings(), p.getCustomerInfo()]);
+      const [customer, offers] = await Promise.all([
+        p.getCustomerInfo(),
+        p.getOfferings().catch(() => null),
+      ]);
       if (!active) return;
-      setOffer(offers.current?.monthly || null);
       setInfo(customer);
-      if (!offers.current?.monthly)
-        setError('A monthly subscription is not currently available. Please check back later.');
-      const onInfo = (info: CustomerInfo) => {
-        if (active) setInfo(info);
+      setOffering(offers?.current ?? null);
+      // Renewals, cancellations and refunds that happen while this is open.
+      const onInfo = (next: CustomerInfo) => {
+        if (active) setInfo(next);
       };
       p.addCustomerInfoUpdateListener(onInfo);
       const listener = AppState.addEventListener('change', (state) => {
@@ -34,149 +41,163 @@ export default function Subscription() {
           void p
             .getCustomerInfo()
             .then(onInfo)
-            .catch((e) => {
-              if (active) setError(errorMessage(e));
-            });
+            .catch(() => {});
       });
       unsubscribe = () => {
         p.removeCustomerInfoUpdateListener(onInfo);
         listener.remove();
       };
-    })().catch((e) => {
-      if (active) setError(errorMessage(e));
-    });
+    })()
+      .catch((e) => {
+        if (active) setError(errorMessage(e));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
     return () => {
       active = false;
       unsubscribe?.();
     };
   }, []);
-  async function buy(restore: boolean) {
+
+  async function restore() {
     if (busy) return;
     setBusy(true);
     setError('');
+    setNote('');
     try {
-      const p = await purchases();
-      if (restore) {
-        const restored = await p.restorePurchases();
-        setInfo(restored);
-        setNote(
-          restored.entitlements.active[entitlement]
-            ? 'Your subscription has been restored.'
-            : 'No active Arrive Plus subscription was found for this store account.',
-        );
-      } else if (offer) setInfo((await p.purchasePackage(offer)).customerInfo);
+      const restored = await (await purchases()).restorePurchases();
+      setInfo(restored);
+      setNote(
+        (await acceptCustomerInfo(restored))
+          ? 'Your subscription has been restored.'
+          : 'No active Arrive Plus subscription was found for this store account.',
+      );
     } catch (e) {
-      if (!(typeof e === 'object' && e && 'userCancelled' in e && e.userCancelled))
-        setError(errorMessage(e));
+      setError(errorMessage(e));
     } finally {
       setBusy(false);
     }
   }
+
   const active = info?.entitlements.active[entitlement];
+  // Which plan this is, from the store's own plans.
+  const plan =
+    active &&
+    [
+      { label: 'Yearly', per: 'year', pkg: offering?.annual },
+      { label: 'Monthly', per: 'month', pkg: offering?.monthly },
+    ].find((p) => p.pkg?.product.identifier === active.productIdentifier);
+  const date = (iso: string | null | undefined) =>
+    iso
+      ? new Date(iso).toLocaleDateString(undefined, {
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+        })
+      : '';
+  const ends = date(active?.expirationDate);
+  const status = !active
+    ? loading
+      ? 'Checking your subscription…'
+      : 'Arrive Plus isn’t active on this store account.'
+    : active.periodType === 'TRIAL'
+      ? ends
+        ? `Free trial · ${active.willRenew ? 'Your plan starts' : 'Ends'} ${ends}`
+        : 'Free trial'
+      : ends
+        ? `${active.willRenew ? 'Renews' : 'Ends'} ${ends}`
+        : 'Active';
+  const privacyUrl = process.env.EXPO_PUBLIC_PRIVACY_URL;
+  const termsUrl =
+    process.env.EXPO_PUBLIC_TERMS_URL ||
+    'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
+  const open = (url: string) => void Linking.openURL(url).catch((e) => setError(errorMessage(e)));
+
   return (
-    <Screen modal>
-      <View style={{ alignItems: 'center', gap: 18 }}>
-        <View style={{ flexDirection: 'row', gap: 7, alignItems: 'center' }}>
-          <Heart size={16} color={app.colors.green} fill={app.colors.green} />
-          <Txt tone="green" weight="bold" style={{ fontSize: 12, letterSpacing: 2 }}>
-            ARRIVE PLUS
+    <Screen
+      modal
+      title="Arrive Plus"
+      message={{
+        text: error || note,
+        error: !!error,
+        onHide: () => {
+          setError('');
+          setNote('');
+        },
+      }}
+    >
+      <PlusHeroArt />
+      <Card style={{ alignItems: 'center', marginTop: 8 }}>
+        <Txt weight="rounded" style={{ fontSize: 22, lineHeight: 28 }}>
+          {active ? (plan ? `${plan.label} plan` : 'You have Arrive Plus') : 'Arrive Plus'}
+        </Txt>
+        <Txt tone="muted" style={{ fontSize: 13, textAlign: 'center', marginTop: 4 }}>
+          {status}
+        </Txt>
+        {plan?.pkg && (
+          <Txt tone="muted" style={{ fontSize: 13, textAlign: 'center' }}>
+            {`${plan.pkg.product.priceString} per ${plan.per}`}
           </Txt>
-        </View>
-        <HappySun size={155} />
-        <Txt weight="display" style={{ fontSize: 34, lineHeight: 42, textAlign: 'center' }}>
-          Little check-ins.{'\n'}A closer you.
-        </Txt>
-        <Txt tone="muted" style={{ textAlign: 'center', fontSize: 14 }}>
-          Support a simpler, more thoughtful{'\n'}way to keep your people close.
-        </Txt>
-      </View>
-      <View style={{ gap: 19, marginVertical: 30 }}>
-        {[
-          'A tiny utility built around the people you love',
-          'A private, ad-free check-in experience',
-          'Support continued improvements to Arrive',
-        ].map((text) => (
-          <View key={text} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <Check size={18} color={app.colors.green} />
-            <Txt style={{ flex: 1, fontSize: 13 }}>{text}</Txt>
-          </View>
-        ))}
-      </View>
-      <Card style={{ backgroundColor: app.colors.softGreen, borderWidth: 0, alignItems: 'center' }}>
-        <Txt weight="rounded" style={{ fontSize: 24 }}>
-          {active
-            ? 'You’re part of Arrive Plus'
-            : offer
-              ? `${offer.product.priceString} / month`
-              : 'A little more love, coming soon'}
-        </Txt>
-        <Txt tone="muted" style={{ fontSize: 12, textAlign: 'center', marginTop: 5 }}>
-          {active
-            ? active.expirationDate
-              ? `Current period ends ${new Date(active.expirationDate).toLocaleDateString()}`
-              : 'Your subscription is active'
-            : 'Your everyday check-ins remain available without Plus.'}
-        </Txt>
+        )}
       </Card>
-      <Notice text={error} error />
-      <Notice text={note} />
-      {!active && (
+      <View style={{ gap: 4, marginTop: 16 }}>
         <Button
-          label={
-            offer ? `Subscribe · ${offer.product.priceString}/month` : 'Subscription not available'
+          label="Manage subscription"
+          variant="secondary"
+          onPress={() =>
+            open(
+              info?.managementURL ||
+                (Platform.OS === 'ios'
+                  ? 'https://apps.apple.com/account/subscriptions'
+                  : 'https://play.google.com/store/account/subscriptions'),
+            )
           }
-          onPress={() => buy(false)}
-          disabled={!offer || !process.env.EXPO_PUBLIC_PRIVACY_URL}
-          loading={busy}
-          style={{ marginTop: 18 }}
         />
-      )}
-      <Button
-        label="Restore purchases"
-        variant="ghost"
-        icon={RefreshCw}
-        onPress={() => buy(true)}
-        disabled={busy}
-      />
-      <Button
-        label="Manage subscription"
-        variant="ghost"
-        onPress={() =>
-          Linking.openURL(
-            info?.managementURL ||
-              (Platform.OS === 'ios'
-                ? 'https://apps.apple.com/account/subscriptions'
-                : 'https://play.google.com/store/account/subscriptions'),
-          ).catch((e) => setError(errorMessage(e)))
-        }
-      />
-      <Button
-        label="Privacy policy"
-        variant="ghost"
-        disabled={!process.env.EXPO_PUBLIC_PRIVACY_URL}
-        onPress={() =>
-          Linking.openURL(process.env.EXPO_PUBLIC_PRIVACY_URL!).catch((e) =>
-            setError(errorMessage(e)),
-          )
-        }
-      />
-      <Button
-        label="Terms of use"
-        variant="ghost"
-        onPress={() =>
-          Linking.openURL(
-            process.env.EXPO_PUBLIC_TERMS_URL ||
-              'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/',
-          ).catch((e) => setError(errorMessage(e)))
-        }
-      />
-      {!process.env.EXPO_PUBLIC_PRIVACY_URL && (
-        <Notice text="Purchases will be available after the publisher provides the privacy policy for this build." />
-      )}
-      <Txt tone="muted" style={{ fontSize: 10, lineHeight: 17, textAlign: 'center' }}>
-        Monthly subscriptions renew automatically unless canceled through your store account. The
-        store shows the final terms before you purchase. No trial is promised.
+        <Button
+          label="Restore purchases"
+          variant="ghost"
+          icon={RefreshCw}
+          onPress={() => void restore()}
+          loading={busy}
+        />
+        {/* Terms and privacy side by side */}
+        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 4 }}>
+          <TextLink label="Terms of use" onPress={() => open(termsUrl)} />
+          {!!privacyUrl && <TextLink label="Privacy policy" onPress={() => open(privacyUrl)} />}
+        </View>
+      </View>
+      <Txt
+        tone="muted"
+        style={{
+          fontSize: 11,
+          lineHeight: 17,
+          textAlign: 'center',
+          marginTop: 8,
+          marginHorizontal: 16,
+        }}
+      >
+        Change or cancel your plan any time in your App Store account.
       </Txt>
     </Screen>
+  );
+}
+
+function TextLink({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="link"
+      hitSlop={10}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        minHeight: 36,
+        justifyContent: 'center',
+        opacity: pressed ? 0.6 : 1,
+      })}
+    >
+      <Txt tone="green" weight="bold" style={{ fontSize: 12 }}>
+        {label}
+      </Txt>
+    </Pressable>
   );
 }

@@ -1,5 +1,6 @@
 import Svg, {
   Circle,
+  ClipPath,
   Defs,
   Ellipse,
   G,
@@ -8,8 +9,27 @@ import Svg, {
   Rect,
   Stop,
   Text,
+  Image as SvgImage,
 } from 'react-native-svg';
+import { WORDMARK } from '@/components/wordmark';
 import { fonts } from '@/design/theme';
+
+const wordmark = require('../../assets/images/arrive-wordmark.png');
+const appIcon = require('../../assets/images/arrive-icon.png');
+
+/** Arrive's logo and name at (x, y), `h` tall, as in the app and on the Lock Screen. */
+function BannerWordmark({ x, y, h }: { x: number; y: number; h: number }) {
+  return (
+    <SvgImage
+      href={wordmark}
+      x={x}
+      y={y}
+      width={h * WORDMARK.aspect}
+      height={h}
+      preserveAspectRatio="xMinYMid meet"
+    />
+  );
+}
 
 // Onboarding illustrations, drawn in the same soft palette as the rest of Arrive.
 
@@ -79,12 +99,18 @@ export function CheckInArt({
         <G>
           {/* A regular notification, as iOS shows it on the Lock Screen */}
           <Rect x="88" y="150" width="144" height="46" rx="14" fill="#FFFFFF" opacity="0.95" />
-          <Rect x="97" y="159" width="28" height="28" rx="8" fill="#287B5A" />
-          <Path
-            d="M111 164c-3.4 0-5.9 2.6-5.9 5.7 0 4.1 5.9 9.3 5.9 9.3s5.9-5.2 5.9-9.3c0-3.1-2.5-5.7-5.9-5.7z"
-            fill="#FFFFFF"
+          {/* Arrive's app icon, as iOS shows it beside a notification */}
+          <ClipPath id="notifIcon">
+            <Rect x="97" y="159" width="28" height="28" rx="7" />
+          </ClipPath>
+          <SvgImage
+            href={appIcon}
+            x="97"
+            y="159"
+            width="28"
+            height="28"
+            clipPath="url(#notifIcon)"
           />
-          <Circle cx="111" cy="169.7" r="2" fill="#287B5A" />
           <Text
             x="133"
             y="170"
@@ -114,23 +140,15 @@ export function CheckInArt({
           {/* The Smart Check-In banner */}
           <Rect x="58" y="128" width="204" height="106" rx="18" fill="#F3F4EF" opacity="0.97" />
           <Rect x="66" y="136" width="188" height="36" rx="12" fill="#E7E9E3" />
-          <Rect x="73" y="142" width="24" height="24" rx="7" fill="#287B5A" />
-          <Path
-            d="M85 147.5c-3.2 0-5.5 2.4-5.5 5.3 0 3.8 5.5 8.7 5.5 8.7s5.5-4.9 5.5-8.7c0-2.9-2.3-5.3-5.5-5.3z"
-            fill="#FFFFFF"
-          />
-          <Circle cx="85" cy="152.7" r="1.9" fill="#287B5A" />
+          {/* The logo and name, with the line under it starting where the name starts */}
+          <BannerWordmark x={73} y={139} h={22} />
           <Text
-            x="104"
-            y="152"
-            fill="#293D36"
-            fontSize="10.5"
-            fontFamily={fonts.bold}
-            fontWeight="700"
+            x={73 + 22 * WORDMARK.nameStart}
+            y="166"
+            fill="#4C5C55"
+            fontSize="8.5"
+            fontFamily={fonts.body}
           >
-            Arrive
-          </Text>
-          <Text x="104" y="164" fill="#4C5C55" fontSize="8.5" fontFamily={fonts.body}>
             Where did you make it to?
           </Text>
           {/* Home */}
@@ -425,17 +443,16 @@ export function CheckInFlowArt({ width = 340, to = 'Andy' }: { width?: number; t
       {/* The check-in banner, a little wider than the phone so it reads */}
       <Rect x="20" y="114" width="172" height="96" rx="15" fill="#F5F6F1" />
       <Rect x="27" y="121" width="158" height="32" rx="10" fill="#E8EAE4" />
-      <Rect x="33" y="126" width="22" height="22" rx="6" fill="#287B5A" />
-      <Path
-        d="M44 130.5c-2.9 0-5 2.2-5 4.8 0 3.5 5 7.9 5 7.9s5-4.4 5-7.9c0-2.6-2.1-4.8-5-4.8z"
-        fill="#FFFFFF"
-      />
-      <Circle cx="44" cy="135.2" r="1.7" fill="#287B5A" />
-      <Text x="61" y="136" fill="#293D36" fontSize="9.5" fontFamily={fonts.bold} fontWeight="700">
-        Arrive
-      </Text>
-      <Text x="61" y="147" fill="#4C5C55" fontSize="7.5" fontFamily={fonts.body}>
-        Where did you make it to?
+      {/* The logo and name, with the line under it starting where the name starts */}
+      <BannerWordmark x={33} y={123} h={20} />
+      <Text
+        x={33 + 20 * WORDMARK.nameStart}
+        y="148"
+        fill="#4C5C55"
+        fontSize="7.5"
+        fontFamily={fonts.body}
+      >
+        Check in with {to}
       </Text>
       <Rect x="27" y="159" width="48" height="44" rx="9" fill="#E3F1EA" />
       <Path d="M44 175l7-6 7 6v8h-4.5v-4.5h-5v4.5H44z" fill="#3F6B57" />

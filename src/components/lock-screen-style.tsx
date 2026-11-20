@@ -1,5 +1,5 @@
 import { Pressable, View } from 'react-native';
-import { BrandMark } from '@/components/brand-mark';
+import { Wordmark } from '@/components/wordmark';
 import { Txt } from '@/components/ui';
 import { accents } from '@/design/theme';
 import { useApp } from '@/state/app';
@@ -59,29 +59,8 @@ export function LockScreenStylePicker({
                   backgroundColor: glass ? 'rgba(16,26,22,0.72)' : '#FCFCF8',
                 }}
               >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                  <View
-                    style={{
-                      width: 14,
-                      height: 14,
-                      borderRadius: 4,
-                      backgroundColor: '#287B5A',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <BrandMark size={11} variant="monochrome" />
-                  </View>
-                  <View
-                    style={{
-                      height: 5,
-                      width: 34,
-                      borderRadius: 3,
-                      backgroundColor: glass ? '#F0F5ED' : '#293D36',
-                      opacity: 0.8,
-                    }}
-                  />
-                </View>
+                {/* The banner's header: Arrive's logo and name, as on the Lock Screen. */}
+                <Wordmark height={16} onDark={glass} />
                 <View style={{ flexDirection: 'row', gap: 4 }}>
                   {swatches.map((a, i) => (
                     <View

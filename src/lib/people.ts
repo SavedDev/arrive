@@ -36,8 +36,9 @@ export function initials(name: string) {
 }
 export function validatePerson(value: Pick<Person, 'name' | 'phone'>) {
   const name = value.name.trim();
-  if (!name || name.length > 50 || /[\u0000-\u001f\u007f]/.test(name))
-    throw new Error('Enter a name of 1–50 characters.');
+  if (!name) throw new Error('Enter their name.');
+  if (name.length > 50 || /[\u0000-\u001f\u007f]/.test(name))
+    throw new Error('That name is too long or has characters Arrive can’t use. Try a shorter one.');
   return { name, phone: normalizePhone(value.phone) };
 }
 export function encodePerson(value: Pick<Person, 'name' | 'phone'>, pairToken?: string) {

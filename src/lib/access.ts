@@ -3,7 +3,7 @@ import { AppState, Platform } from 'react-native';
 import type { CustomerInfo } from 'react-native-purchases';
 import { cachedAccessValid } from './paywall';
 import { entitlement, purchases } from './purchases';
-import { read, remove, write } from './storage';
+import { read, write } from './storage';
 
 // Arrive needs Arrive Plus: a free trial or a paid subscription. Without it, the app shows the
 // paywall and its background features (Smart Check-In, reminders) stay off.
@@ -14,9 +14,6 @@ import { read, remove, write } from './storage';
 export type Access = 'checking' | 'active' | 'none';
 type Cache = { active: boolean; expiresAt: number | null };
 const CACHE = 'access-cache';
-// Development builds only: lets the app be tested before the store is set up. Ignored in
-// release builds, so it can't be used to get around the paywall.
-const QA_BYPASS = 'qa-bypass';
 
 let current: Access = 'checking';
 const listeners = new Set<(a: Access) => void>();
@@ -44,7 +41,7 @@ const ungated = Platform.OS === 'web';
 /** Asks the store, falling back to the cached answer when it can't be reached. */
 export async function refreshAccess(): Promise<boolean> {
   let active: boolean;
-  if (ungated || (__DEV__ && (await read(QA_BYPASS, false)))) active = true;
+  if (ungated) active = true;
   else {
     try {
       const p = await purchases();
@@ -59,7 +56,7 @@ export async function refreshAccess(): Promise<boolean> {
 
 /** For background tasks: the last known answer, without touching the network. */
 export async function hasAccessCached() {
-  if (ungated || (__DEV__ && (await read(QA_BYPASS, false)))) return true;
+  if (ungated) return true;
   return cachedAccessValid(await read<Cache | null>(CACHE, null), Date.now());
 }
 
@@ -68,14 +65,6 @@ export async function acceptCustomerInfo(info: CustomerInfo) {
   const active = await save(info);
   publish(active ? 'active' : 'none');
   return active;
-}
-
-/** Development builds only. */
-export async function setQaBypass(on: boolean) {
-  if (!__DEV__) return;
-  if (on) await write(QA_BYPASS, true);
-  else await remove(QA_BYPASS);
-  await refreshAccess();
 }
 
 /** Whether Arrive Plus is active, kept current as the app returns to the foreground. */

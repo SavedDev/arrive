@@ -18,7 +18,7 @@
     "android": {
       "package": "com.arrive.checkin",
       "adaptiveIcon": {
-        "backgroundColor": "#FAF0E2",
+        "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/images/arrive-adaptive.png",
         "monochromeImage": "./assets/images/arrive-monochrome.png"
       },
@@ -35,7 +35,7 @@
       "favicon": "./assets/images/favicon.png",
       "splash": {
         "image": "./assets/images/arrive-splash.png",
-        "backgroundColor": "#FAF0E2",
+        "backgroundColor": "#FFFFFF",
         "resizeMode": "contain"
       }
     },
@@ -44,7 +44,7 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#FAF0E2",
+          "backgroundColor": "#FFFFFF",
           "image": "./assets/images/arrive-splash.png",
           "imageWidth": 220,
           "resizeMode": "contain"
@@ -77,7 +77,7 @@
             {
               "name": "ArriveCheckIn",
               "displayName": "Check In",
-              "description": "A little check-in. A closer you.",
+              "description": "The fastest way to check in.",
               "ios": {
                 "supportedFamilies": ["accessoryCircular", "accessoryRectangular", "systemSmall"]
               }
