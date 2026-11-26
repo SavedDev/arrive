@@ -12,7 +12,8 @@ import { read, write } from './storage';
 // wait on the network, and an offline launch still know; the cache honours the expiry date.
 
 export type Access = 'checking' | 'active' | 'none';
-type Cache = { active: boolean; expiresAt: number | null };
+/** willRenew: the subscription renews on its own at expiresAt (see cachedAccessValid). */
+type Cache = { active: boolean; expiresAt: number | null; willRenew?: boolean };
 const CACHE = 'access-cache';
 
 let current: Access = 'checking';
@@ -27,6 +28,7 @@ function fromInfo(info: CustomerInfo): Cache {
   return {
     active: !!ent,
     expiresAt: ent?.expirationDate ? Date.parse(ent.expirationDate) : null,
+    willRenew: !!ent?.willRenew,
   };
 }
 async function save(info: CustomerInfo) {

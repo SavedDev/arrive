@@ -48,11 +48,26 @@ async function secureStore() {
     throw new Error(BUILD_REQUIRED);
   }
 }
+/**
+ * Leaving a place usually happens with the phone locked in a pocket, and the background request
+ * that starts the Live Activity needs these credentials then. The keychain's default only
+ * allows reads while the phone is unlocked, so they're kept readable after the first unlock.
+ */
+const MIGRATED = 'smart-credentials-after-first-unlock';
 async function credentials() {
   if (Platform.OS === 'web') throw new Error('Smart Reminders require the iOS or Android app.');
   const store = await secureStore();
-  const saved = await store.getItemAsync(CREDENTIALS);
-  if (saved) return JSON.parse(saved) as Credentials;
+  const options = { keychainAccessible: store.AFTER_FIRST_UNLOCK };
+  const saved = await store.getItemAsync(CREDENTIALS, options);
+  if (saved) {
+    // Saved by an older version, readable only while unlocked. This read worked, so the phone
+    // is unlocked now: save them again with the new setting, once.
+    if (!(await read(MIGRATED, false))) {
+      await store.setItemAsync(CREDENTIALS, saved, options);
+      await write(MIGRATED, true);
+    }
+    return JSON.parse(saved) as Credentials;
+  }
   const secret = hex(Crypto.getRandomBytes(32));
   const response = await fetch(`${configuredUrl()}/v1/devices/register`, {
     method: 'POST',
@@ -63,7 +78,8 @@ async function credentials() {
   if (!response.ok || !result.deviceId)
     throw new Error(result.error || 'Could not register this device.');
   const value = { deviceId: result.deviceId, secret };
-  await store.setItemAsync(CREDENTIALS, JSON.stringify(value));
+  await store.setItemAsync(CREDENTIALS, JSON.stringify(value), options);
+  await write(MIGRATED, true);
   return value;
 }
 async function api<T>(path: string, init?: RequestInit): Promise<T> {

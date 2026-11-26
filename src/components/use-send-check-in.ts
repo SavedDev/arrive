@@ -1,21 +1,33 @@
 import { useCallback, useRef, useState } from 'react';
 import * as Crypto from 'expo-crypto';
 import { historyForResult } from '@/lib/composer';
-import { errorMessage } from '@/lib/domain';
-import { anchorHere, clearAnchor, markManualArrival } from '@/lib/location';
+import { errorMessage, leavingText } from '@/lib/domain';
+import {
+  anchorHere,
+  clearAnchor,
+  markManualArrival,
+  stopWatchingForArrival,
+  watchForArrival,
+} from '@/lib/location';
 import { openComposer } from '@/lib/messaging';
 import { confirmSend } from '@/lib/notifications';
-import { cancelCheckingIn, completeReminder, markCheckingIn } from '@/lib/reminder-runtime';
+import {
+  afterCheckIn,
+  cancelCheckingIn,
+  markCheckingIn,
+  readReminder,
+} from '@/lib/reminder-runtime';
 import type { Preset } from '@/lib/types';
 import { useApp } from '@/state/app';
 
 /**
- * "Coming": the heading-home message Smart Check-In offers after you leave where you last
- * checked in. Not one of the check-ins on Home, and not the same as Home (an arrival).
+ * "Homebound": the heading-home message the Lock Screen offers after you check in somewhere, or
+ * leave where you last did. Not one of the check-ins on Home, and not the same as Home (an
+ * arrival).
  */
 export const comingPreset = (message: string): Preset => ({
   id: 'coming',
-  name: 'Coming',
+  name: 'Homebound',
   icon: 'walk',
   color: 'mint',
   message,
@@ -23,6 +35,19 @@ export const comingPreset = (message: string): Preset => ({
   favorite: false,
   order: -1,
 });
+/**
+ * "Leaving": offered once you've checked in somewhere. Its words name that place, from the
+ * "checked in" reminder on the Lock Screen.
+ */
+export async function leavingPreset(template: string): Promise<Preset> {
+  const r = await readReminder().catch(() => null);
+  return {
+    ...comingPreset(leavingText(template, r?.source === 'checkedIn' ? r.atName : undefined)),
+    id: 'leaving',
+    name: 'Leaving',
+    icon: 'walk',
+  };
+}
 
 /**
  * Sends a check-in: opens Messages with the check-in's words and person, then records what
@@ -41,8 +66,10 @@ export function useSendCheckIn() {
       recipientId?: string;
       /** Opened from the Lock Screen reminder or its notification. */
       fromReminder?: boolean;
-      /** The "Coming" message: a departure, so it never marks where you are. */
+      /** The "Homebound" message: a departure, so it never marks where you are. */
       coming?: boolean;
+      /** The "Leaving" message: also a departure. */
+      leaving?: boolean;
     } = {},
   ) {
     if (inFlight.current) return;
@@ -78,30 +105,37 @@ export function useSendCheckIn() {
       } catch {
         setNote(
           result === 'sent'
-            ? 'Messages reported a send action, but Arrive could not save it to local history. Do not resend unless you intend another message.'
+            ? 'Sent, but Arrive couldn’t add it to your history. No need to send it again.'
             : 'Arrive could not save this attempt. Check Messages to see whether you sent it.',
         );
-        if (result === 'sent') await confirmSend(entry, app.prefs).catch(() => {});
+        if (result === 'sent') await confirmSend(entry).catch(() => {});
         return;
       }
       if (result === 'sent') {
         sent = true;
+        const departing = !!(options.coming || options.leaving);
         // An arrival makes where you are the temporary anchor, replacing the last one; leaving
-        // it later is a Smart Check-In trigger. "Coming" only finishes the old one. Not
-        // awaited: a precise fix can take a few seconds.
-        if (options.coming) void clearAnchor(app.places).catch(() => {});
+        // it later is a Smart Check-In trigger. Leaving and Homebound only finish the old one.
+        // Not awaited: a precise fix can take a few seconds.
+        if (departing) void clearAnchor(app.places).catch(() => {});
         else if (app.prefs.smartCheckIn && app.prefs.departureReminders)
           void anchorHere(app.places).catch(() => {});
+        // Leaving or Homebound means a second check-in is due when you get there ("Made it?"
+        // if you stop moving, when that's on). Any arrival means you've told them, so a pending
+        // arrival notification is withdrawn too.
+        void (departing ? watchForArrival() : stopWatchingForArrival()).catch(() => {});
         await Promise.allSettled([
-          options.coming ? Promise.resolve() : markManualArrival(preset.id),
-          confirmSend(entry, app.prefs),
-          // A confirmed send ends whatever reminder is showing, however the check-in started.
-          completeReminder(),
+          departing ? Promise.resolve() : markManualArrival(preset.id),
+          confirmSend(entry),
+          // The new check-in replaces whatever reminder came before, on the one Lock Screen
+          // banner: Leaving/Homebound after an arrival; your check-ins after a departure.
+          afterCheckIn(
+            departing
+              ? { kind: options.leaving ? 'leaving' : 'homebound' }
+              : { kind: 'arrival', presetId: preset.id, name: preset.name },
+          ),
         ]);
-      } else
-        setNote(
-          'Messages opened, but Arrive cannot verify whether you sent the check-in. Check your messaging app. History marks this as unverified.',
-        );
+      } else setNote('Messages didn’t confirm it was sent. Check Messages to make sure it went.');
     } catch (e) {
       setError(errorMessage(e));
     } finally {

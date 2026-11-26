@@ -1,3 +1,56 @@
+import { ActivityBannerPreview } from '@/components/activity-banner-preview';
+import { LockScreenStylePicker } from '@/components/lock-screen-style';
+import {
+  Button,
+  Chip,
+  ConfirmDialog,
+  Field,
+  Notice,
+  PlacesLink,
+  Row,
+  Screen,
+  Section,
+  Toggle,
+  Txt,
+  goBack,
+} from '@/components/ui';
+import { hasAccessCached } from '@/lib/access';
+import { activityShortcuts, errorMessage } from '@/lib/domain';
+import {
+  requestMonitoring,
+  simulatePlaceEvent,
+  stopStillWatch,
+  testDepartureReminder,
+} from '@/lib/location';
+import { cancelReminders, enableNotifications } from '@/lib/notifications';
+import {
+  afterCheckIn,
+  cancelPendingReminder,
+  completeReminder,
+  dismissReminder,
+  expireReminder,
+  liveActivityProblem,
+  reconcileReminder,
+  simulateDeparture,
+  startReminder,
+  updateTestActivity,
+} from '@/lib/reminder-runtime';
+import { telUrl } from '@/lib/send-request';
+import { separationTriggerOn } from '@/lib/smart-checkin';
+import {
+  disableSmartReminders,
+  disconnectSmartReminders,
+  enableSmartReminders,
+  getSmartStatus,
+  simulateSmartScenario,
+  smartRuntimeError,
+  updateSmartSettings,
+  type SmartStatus,
+} from '@/lib/smart-reminders';
+import { initialPreferences } from '@/lib/types';
+import { useApp } from '@/state/app';
+import { router, useLocalSearchParams } from 'expo-router';
+import { Bell, HelpCircle, Mail, Settings2, Shield, Trash2 } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { Linking, Platform, Pressable, View, type ViewStyle } from 'react-native';
 import Animated, {
@@ -6,49 +59,6 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import { router, useLocalSearchParams } from 'expo-router';
-import { Bell, HelpCircle, Mail, Settings2, Shield, Trash2 } from 'lucide-react-native';
-import {
-  Button,
-  Chip,
-  ConfirmDialog,
-  Field,
-  Notice,
-  Row,
-  Screen,
-  Section,
-  Toggle,
-  Txt,
-  goBack,
-} from '@/components/ui';
-import { ActivityBannerPreview } from '@/components/activity-banner-preview';
-import { LockScreenStylePicker } from '@/components/lock-screen-style';
-import { useApp } from '@/state/app';
-import { activityShortcuts, errorMessage } from '@/lib/domain';
-import { telUrl } from '@/lib/send-request';
-import { separationTriggerOn } from '@/lib/smart-checkin';
-import { initialPreferences } from '@/lib/types';
-import { enableNotifications, cancelReminders } from '@/lib/notifications';
-import { testDepartureReminder } from '@/lib/location';
-import {
-  cancelPendingReminder,
-  completeReminder,
-  dismissReminder,
-  reconcileReminder,
-  simulateDeparture,
-  startReminder,
-  updateTestActivity,
-} from '@/lib/reminder-runtime';
-import {
-  disableSmartReminders,
-  disconnectSmartReminders,
-  enableSmartReminders,
-  getSmartStatus,
-  smartRuntimeError,
-  simulateSmartScenario,
-  updateSmartSettings,
-  type SmartStatus,
-} from '@/lib/smart-reminders';
 export type SettingsSection =
   'reminders' | 'permissions' | 'appearance' | 'privacy' | 'support' | 'developer';
 const titles: Record<SettingsSection, string> = {
@@ -70,20 +80,26 @@ const WEEK = [
   { day: 0, label: 'S', name: 'Sunday' },
 ];
 /**
- * The words behind "Coming", offered on the Lock Screen after you leave where you last checked
- * in. Saved when you finish typing; an empty field puts the default back.
+ * The words behind a Lock Screen button (Leaving or Homebound). Saved when you finish typing; an
+ * empty field puts the default back.
  */
-function ComingMessage({ value, onSave }: { value: string; onSave: (message: string) => void }) {
-  const [text, setText] = useState(value);
+function ButtonMessage(props: {
+  label: string;
+  value: string;
+  fallback: string;
+  note: string;
+  onSave: (message: string) => void;
+}) {
+  const [text, setText] = useState(props.value);
   const save = () => {
-    const next = text.trim() || initialPreferences.comingMessage;
+    const next = text.trim() || props.fallback;
     setText(next);
-    if (next !== value) onSave(next);
+    if (next !== props.value) props.onSave(next);
   };
   return (
-    <View style={{ marginTop: 6 }}>
+    <View style={{ marginTop: 6, marginBottom: 10 }}>
       <Field
-        label="“Coming” message"
+        label={props.label}
         value={text}
         maxLength={500}
         onChangeText={setText}
@@ -92,13 +108,12 @@ function ComingMessage({ value, onSave }: { value: string; onSave: (message: str
         returnKeyType="done"
       />
       <Txt tone="muted" style={{ fontSize: 12, lineHeight: 17, marginTop: -12 }}>
-        Offered first on your Lock Screen after you leave somewhere you checked in. It&apos;s not
-        your Home check-in, which says you&apos;ve arrived.
+        {props.note}
       </Txt>
     </View>
   );
 }
-function DayPicker({ days, onChange }: { days: number[]; onChange: (days: number[]) => void }) {
+function DayPicker({ days, onChange }: { days: number[]; onChange: (days: number[]) => void; }) {
   const { colors } = useApp();
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
@@ -177,11 +192,37 @@ export default function SettingsSheet() {
         setSmartStatus(status);
         if (runtimeError) setError(runtimeError);
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => {
       active = false;
     };
   }, [section, prefs.smartReminders]);
+  // Developer test: says whether the Live Activity really started, and why not if it didn't.
+  async function startTest(coming: boolean) {
+    // Reminder work runs one task at a time; a stuck earlier one would otherwise look like nothing.
+    const where = await Promise.race([
+      startReminder('test', coming),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                'Still waiting after 15 seconds: an earlier reminder task hasn’t finished.',
+              ),
+            ),
+          15_000,
+        ),
+      ),
+    ]);
+    if (where === 'lockScreen')
+      return `Started${coming ? ' with Homebound' : ''}. Lock your phone to see it.${(await hasAccessCached())
+          ? ''
+          : ' Arrive Plus isn’t active, so it ends when Arrive reopens.'
+        }`;
+    throw new Error(
+      `The Live Activity didn’t start: ${liveActivityProblem() || 'no reason given.'} A fallback notification is set for ${Math.max(1, prefs.reminderMinutes)} min.`,
+    );
+  }
   async function run(fn: () => Promise<unknown>) {
     setError('');
     setNote('');
@@ -215,9 +256,9 @@ export default function SettingsSheet() {
           showLabels={prefs.activityButtonLabels}
           showCall={prefs.activityCallButton && canCall}
           width={Number(pw)}
-          onReorder={() => {}}
-          onAppearance={() => {}}
-          onDragChange={() => {}}
+          onReorder={() => { }}
+          onAppearance={() => { }}
+          onDragChange={() => { }}
         />
       </Glide>
     ) : undefined;
@@ -263,23 +304,8 @@ export default function SettingsSheet() {
           />
           {prefs.smartCheckIn && (
             <>
+              {/* Arrive keeps one person, so there's no one to choose here. */}
               <Txt weight="medium" style={{ fontSize: 13, marginTop: 6, marginBottom: 9 }}>
-                Person
-              </Txt>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                {app.people.map((p) => (
-                  <Chip
-                    key={p.id}
-                    label={p.name}
-                    active={prefs.defaultRecipient === p.id}
-                    onPress={() => run(() => app.updatePrefs({ defaultRecipient: p.id }))}
-                  />
-                ))}
-                {!app.people.length && (
-                  <Chip label="Add your person" onPress={() => router.push('/people')} />
-                )}
-              </View>
-              <Txt weight="medium" style={{ fontSize: 13, marginTop: 18, marginBottom: 9 }}>
                 Active days
               </Txt>
               <DayPicker
@@ -359,11 +385,14 @@ export default function SettingsSheet() {
               )}
               <Row
                 title="Leaving places"
-                subtitle={`${
-                  remembered
-                    ? `${remembered} remembered ${remembered === 1 ? 'place' : 'places'}, and`
-                    : 'Remembered places, and'
-                } wherever you last checked in. Only “left, start in ${prefs.reminderMinutes} min” is sent, never where.`}
+                subtitle={
+                  <>
+                    Reminds you to check in {prefs.reminderMinutes} min after you leave{' '}
+                    {remembered > 1 ? `one of your ${remembered} ` : remembered ? 'your ' : 'a '}
+                    <PlacesLink>{remembered > 1 ? 'saved places' : 'saved place'}</PlacesLink> or
+                    the spot where you last checked in.
+                  </>
+                }
                 right={
                   <Toggle
                     label="Leaving places"
@@ -378,13 +407,76 @@ export default function SettingsSheet() {
                 }
               />
               {prefs.departureReminders && (
-                <ComingMessage
-                  value={prefs.comingMessage}
-                  onSave={(comingMessage) => run(() => app.updatePrefs({ comingMessage }))}
-                />
+                <>
+                  <ButtonMessage
+                    label="“Leaving” message"
+                    value={prefs.leavingMessage}
+                    fallback={initialPreferences.leavingMessage}
+                    note="Sent from your Lock Screen when you leave somewhere you checked in. [location] becomes that place, like “Leaving Work now”."
+                    onSave={(leavingMessage) => run(() => app.updatePrefs({ leavingMessage }))}
+                  />
+                  <ButtonMessage
+                    label="“Homebound” message"
+                    value={prefs.comingMessage}
+                    fallback={initialPreferences.comingMessage}
+                    note="Sent from your Lock Screen when you're heading home. It shows only when you've saved Home and aren't there. Your Home check-in is for when you get there."
+                    onSave={(comingMessage) => run(() => app.updatePrefs({ comingMessage }))}
+                  />
+                  {/* After "Coming": arriving at a saved place always asks "Made it?". This
+                      also asks once you've stopped moving anywhere else. */}
+                  <Row
+                    title="Ask “Made it?” when I stop"
+                    subtitle={
+                      <>
+                        After you send Leaving or Homebound, Arrive asks once you&apos;ve stayed in
+                        one spot for {prefs.madeItStillMinutes} min. Arriving at one of your{' '}
+                        <PlacesLink>saved places</PlacesLink> always asks right away.
+                      </>
+                    }
+                    right={
+                      <Toggle
+                        label="Ask Made it when I stop"
+                        value={prefs.madeItWhenStill}
+                        onChange={(v) =>
+                          run(async () => {
+                            // Needs Always location and notifications; asks for them if needed.
+                            if (v) await requestMonitoring();
+                            else await stopStillWatch();
+                            await app.updatePrefs({ madeItWhenStill: v });
+                          })
+                        }
+                      />
+                    }
+                  />
+                  {prefs.madeItWhenStill && (
+                    <>
+                      <Txt weight="medium" style={{ fontSize: 13, marginTop: 4, marginBottom: 9 }}>
+                        Ask after staying put for
+                      </Txt>
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        {([5, 10, 15] as const).map((n) => (
+                          <Chip
+                            key={n}
+                            label={`${n} min`}
+                            active={prefs.madeItStillMinutes === n}
+                            onPress={() => run(() => app.updatePrefs({ madeItStillMinutes: n }))}
+                          />
+                        ))}
+                      </View>
+                    </>
+                  )}
+                </>
               )}
             </>
           )}
+          <Txt
+            tone="muted"
+            style={{ textAlign: 'center', fontSize: 11, lineHeight: 18, marginTop: 22 }}
+          >
+            Your location is never shared.
+            {prefs.smartReminders &&
+              ' Smart Reminders sends only your latest location to Arrive’s service, to tell when you and your person go separate ways. They never see it.'}
+          </Txt>
         </>
       )}
       {section === 'developer' && __DEV__ && (
@@ -395,13 +487,43 @@ export default function SettingsSheet() {
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {(
               [
-                ['Start Live Activity', () => startReminder('test'), 'Lock your phone to see it.'],
-                [
-                  'Start with Coming',
-                  () => startReminder('test', true),
-                  'As if you left where you last checked in. Lock your phone to see it.',
-                ],
+                ['Start Live Activity', () => startTest(false), ''],
+                ['Start with Homebound', () => startTest(true), ''],
                 ['Update', () => updateTestActivity(), 'Updated the Live Activity.'],
+                [
+                  'Checked in (simulated)',
+                  async () => {
+                    const preset = app.presets.find((x) => x.id === 'work') ?? app.presets[0];
+                    await afterCheckIn({ kind: 'arrival', presetId: preset.id, name: preset.name });
+                    return `As if you sent your ${preset.name} check-in. Lock your phone to see Leaving and Homebound.`;
+                  },
+                  '',
+                ],
+                [
+                  'Leaving (simulated)',
+                  async () => {
+                    await afterCheckIn({ kind: 'leaving' });
+                    return 'As if you sent Leaving. Lock your phone to see your check-ins.';
+                  },
+                  '',
+                ],
+                [
+                  'Arrive at a place',
+                  async () => {
+                    const name = await simulatePlaceEvent('enter');
+                    return `Arrived at ${name}. A traveling banner puts it first now; the notification shows in 10 seconds.`;
+                  },
+                  '',
+                ],
+                [
+                  'Leave a place',
+                  async () => {
+                    const name = await simulatePlaceEvent('exit');
+                    return `Left ${name}. Smart Check-In shows in ${prefs.reminderMinutes} min, unless a banner is already up.`;
+                  },
+                  '',
+                ],
+                ['Expire now', () => expireReminder(), 'Expired, as if its time had run out.'],
                 ['Complete', () => completeReminder(), 'Completed. It ends in a few seconds.'],
                 ['Dismiss', () => dismissReminder(), 'Dismissed.'],
                 [
@@ -423,8 +545,9 @@ export default function SettingsSheet() {
                 label={label}
                 onPress={() =>
                   run(async () => {
-                    await fn();
-                    if (done) setNote(done);
+                    setNote('Working…');
+                    const said = await fn();
+                    setNote(typeof said === 'string' ? said : done);
                   })
                 }
               />
@@ -468,7 +591,7 @@ export default function SettingsSheet() {
         <>
           <Row
             title="Enable local notifications"
-            subtitle="Reminders and send confirmations"
+            subtitle="Reminders when you leave a place or make it home"
             icon={Bell}
             onPress={() =>
               run(async () => {
@@ -597,7 +720,7 @@ export default function SettingsSheet() {
             onPress={
               process.env.EXPO_PUBLIC_SUPPORT_EMAIL
                 ? () =>
-                    run(() => Linking.openURL(`mailto:${process.env.EXPO_PUBLIC_SUPPORT_EMAIL}`))
+                  run(() => Linking.openURL(`mailto:${process.env.EXPO_PUBLIC_SUPPORT_EMAIL}`))
                 : undefined
             }
           />

@@ -343,8 +343,8 @@ test('history persists, expires at launch and can be cleared', async ({ page }) 
     );
   });
   await page.reload();
-  await expect(page.getByText('Sent via Messages', { exact: true })).toBeVisible();
-  await expect(page.getByText('Send unverified · Messages opened')).toBeVisible();
+  await expect(page.getByText('Sent in Messages', { exact: true })).toBeVisible();
+  await expect(page.getByText('Opened in Messages, may not have been sent')).toBeVisible();
   await expect(page.getByText('Expired text')).toHaveCount(0);
   const ids = await page.evaluate(() =>
     JSON.parse(localStorage.getItem('arrive:history') || '[]').map((e: { id: string }) => e.id),

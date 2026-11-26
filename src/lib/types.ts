@@ -99,7 +99,6 @@ export type Preferences = {
   defaultRecipient: string;
   defaultPreset: string;
   defaultMessage: string;
-  confirmations: boolean;
   /** Smart Check-In's "Show after": minutes between a trigger and the Live Activity. */
   reminderMinutes: 1 | 5 | 10;
   /** Smart Check-In on or off. Manual check-ins always work either way. */
@@ -113,6 +112,15 @@ export type Preferences = {
    * heading-home status, not an arrival, so it's kept apart from the Home check-in.
    */
   comingMessage: string;
+  /** What "Leaving" sends. "[location]" becomes where you last checked in, e.g. "Work". */
+  leavingMessage: string;
+  /**
+   * After "Coming", also ask "Made it?" once you've stayed in one spot this long, anywhere
+   * (arriving at a remembered place always asks right away). Watches location for up to 3 hours.
+   */
+  madeItWhenStill: boolean;
+  /** Minutes in one spot before that "Made it?". */
+  madeItStillMinutes: 5 | 10 | 15;
   /** Trigger: going separate ways from the paired person. Location leaves the phone only then. */
   smartReminders: boolean;
   /** Show the active reminder on the Lock Screen (a Live Activity) instead of only a notification. */
@@ -164,12 +172,14 @@ export const initialPreferences: Preferences = {
   defaultRecipient: '',
   defaultPreset: '',
   defaultMessage: "I've arrived safely! ❤️",
-  confirmations: true,
   reminderMinutes: 5,
   smartCheckIn: true,
   activeDays: [0, 1, 2, 3, 4, 5, 6],
   departureReminders: true,
   comingMessage: 'Coming home now ❤️',
+  leavingMessage: 'Leaving [location] now',
+  madeItWhenStill: false,
+  madeItStillMinutes: 10,
   smartReminders: false,
   lockScreenReminder: true,
   lockScreenStyle: 'soft',

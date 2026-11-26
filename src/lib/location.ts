@@ -7,9 +7,30 @@ import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { errorMessage } from './domain';
 import { hasAccessCached } from './access';
 import { read, write } from './storage';
-import { initialPreferences, type Place, type Visit } from './types';
+import {
+  initialPreferences,
+  initialPresets,
+  type Person,
+  type Place,
+  type Preset,
+  type Visit,
+} from './types';
 import { enableNotifications, localNotice } from './notifications';
-import { activeOn, departureTriggerOn, separationTriggerOn } from './smart-checkin';
+import {
+  activeOn,
+  departureTriggerOn,
+  madeItAsked,
+  madeItDue,
+  madeItNotice,
+  nextStillNudge,
+  separationTriggerOn,
+  ARRIVAL_DWELL_MS,
+  MONITORING_SETTLE_MS,
+  arrivalDecision,
+  arrivalNotice,
+  type ArrivalNotice,
+  type MadeItWatch,
+} from './smart-checkin';
 import {
   ANCHOR_LIFETIME_MS,
   ANCHOR_REGION,
@@ -23,6 +44,8 @@ import {
   DEPARTURE_TITLE,
   departureBodyFor,
   cancelScheduledReminder,
+  highlightArrival,
+  readReminder,
   scheduleDepartureReminder,
 } from './reminder-runtime';
 import { uploadUsefulLocation } from './smart-reminders';
@@ -36,7 +59,14 @@ async function handleEvent(
   region: Location.LocationRegion,
 ) {
   // Smart Check-In is part of Arrive Plus; without it, leaving places starts nothing.
-  if (!(await hasAccessCached())) return;
+  if (!(await hasAccessCached())) {
+    // Said in Settings, so a missed reminder isn't a mystery.
+    await write(
+      'smart-reminders-error',
+      'Left a place, but Arrive Plus wasn’t confirmed, so nothing started. Opening Arrive rechecks it.',
+    );
+    return;
+  }
   const places = await read<Place[]>('places', []),
     prefs = { ...initialPreferences, ...(await read('preferences', initialPreferences)) };
   if (region.identifier === ANCHOR_REGION) return handleAnchorEvent(eventType, places, prefs);
@@ -70,6 +100,8 @@ async function handleEvent(
         delayMinutes: prefs.reminderMinutes,
       });
     await write(key, visit);
+    // Left before the short stay was up: just passing by, so no arrival notification.
+    await cancelArrivalNotice(place.id);
     return;
   }
   // Back before the delay ran out: the departure never shows.
@@ -77,12 +109,217 @@ async function handleEvent(
     await Notifications.cancelScheduledNotificationAsync(previous.reminderId).catch(() => {});
   await cancelScheduledReminder(place.id);
   if (previous?.inside) return;
+  await arrivedAt(place, prefs, now);
   await write(key, {
     inside: true,
     exitedAt: previous?.exitedAt || 0,
     lastAction: previous?.lastAction || 0,
     visitId: Crypto.randomUUID(),
   } satisfies Visit);
+}
+// ---- "Made it?" ------------------------------------------------------------------------------
+
+const MADE_IT_KEY = 'made-it-watch';
+const STILL_TASK = 'arrive-made-it-still-v1';
+const STILL_NOTICE = 'made-it-still';
+const readWatch = () => read<MadeItWatch | null>(MADE_IT_KEY, null);
+const readPrefs = async () => ({
+  ...initialPreferences,
+  ...(await read('preferences', initialPreferences)),
+});
+/** Who to name, and which check-in a tap sends (a place's own, else Home, else the default). */
+async function madeItFor(prefs: typeof initialPreferences, presetId?: string) {
+  const [people, presets] = await Promise.all([
+    read<Person[]>('people', []),
+    read<Preset[]>('presets', initialPresets),
+  ]);
+  const person = people.find((p) => p.id === prefs.defaultRecipient) ?? people[0];
+  const id =
+    [presetId, 'home', prefs.defaultPreset].find((x) => x && presets.some((p) => p.id === x)) ||
+    'elsewhere';
+  return {
+    person,
+    presetId: id,
+    ...madeItNotice(person?.name, presets.find((p) => p.id === id)?.name),
+  };
+}
+
+/**
+ * Sent "Coming": watch for the next arrival at a remembered place, and, if that option is on,
+ * for staying in one spot anywhere.
+ */
+export async function watchForArrival() {
+  const now = Date.now();
+  const prefs = await readPrefs();
+  const watch: MadeItWatch = { startedAt: now };
+  await write(MADE_IT_KEY, watch);
+  if (prefs.madeItWhenStill) await startStillWatch(watch, prefs, now).catch(() => {});
+}
+/** Another check-in went out (or the watch is over), so there's nothing left to ask. */
+export async function stopWatchingForArrival() {
+  await write<MadeItWatch | null>(MADE_IT_KEY, null);
+  await stopStillWatch();
+  await cancelArrivalNotice();
+}
+
+/**
+ * Location updates come only while you move (every 100 m or so). Each one pushes the nudge
+ * later, so it goes off once you've stayed put for the chosen minutes. Nothing leaves the phone.
+ */
+async function startStillWatch(watch: MadeItWatch, prefs: typeof initialPreferences, now: number) {
+  if (Platform.OS === 'web') return;
+  if (!(await Location.getBackgroundPermissionsAsync()).granted) return;
+  await pushStillNudge(watch, prefs, now);
+  if (await Location.hasStartedLocationUpdatesAsync(STILL_TASK)) return;
+  await Location.startLocationUpdatesAsync(STILL_TASK, {
+    accuracy: Location.Accuracy.Balanced,
+    distanceInterval: 100,
+    // Paused updates only resume when Arrive is opened, so a long red light would end the watch.
+    pausesUpdatesAutomatically: false,
+    activityType: Location.ActivityType.Other,
+    showsBackgroundLocationIndicator: false,
+  });
+}
+export async function stopStillWatch() {
+  if (Platform.OS === 'web') return;
+  await Notifications.cancelScheduledNotificationAsync(STILL_NOTICE).catch(() => {});
+  if (await Location.hasStartedLocationUpdatesAsync(STILL_TASK).catch(() => false))
+    await Location.stopLocationUpdatesAsync(STILL_TASK).catch(() => {});
+}
+/** (Re)sets the "stopped moving" nudge for minutes from now, or ends the watch if it's over. */
+async function pushStillNudge(watch: MadeItWatch, prefs: typeof initialPreferences, now: number) {
+  const at = nextStillNudge(watch, prefs.madeItStillMinutes, now);
+  if (!at || !madeItDue(watch, prefs, now) || !prefs.madeItWhenStill) {
+    await stopStillWatch();
+    return;
+  }
+  const { person, presetId, title, body } = await madeItFor(prefs);
+  if (!person) return stopWatchingForArrival();
+  // The same identifier replaces the one already waiting.
+  await localNotice(
+    title,
+    body,
+    { kind: 'made-it', presetId },
+    Math.round((at - now) / 1000),
+    STILL_NOTICE,
+  );
+  await write(MADE_IT_KEY, { ...watch, stillDueAt: at } satisfies MadeItWatch);
+}
+async function handleStillMove() {
+  const now = Date.now();
+  const watch = await readWatch();
+  // Already asked (the nudge went off), or the watch ended: stop watching location.
+  if (!watch || madeItAsked(watch, now)) {
+    if (watch) await write<MadeItWatch | null>(MADE_IT_KEY, null);
+    return stopStillWatch();
+  }
+  await pushStillNudge(watch, await readPrefs(), now);
+}
+if (Platform.OS !== 'web')
+  TaskManager.defineTask(STILL_TASK, ({ error }) =>
+    error ? Promise.resolve() : handleStillMove().catch(() => {}),
+  );
+
+// ---- Arriving at a saved place ---------------------------------------------------------------
+
+const ARRIVAL_KEY = 'arrival-notice';
+const ARRIVAL_ID = 'arrival';
+const STARTED_KEY = 'geofences-started-at';
+/** Developer tests: a short stay instead of the real one, so an arrival shows in seconds. */
+let simulatedDwellMs: number | null = null;
+/**
+ * Developer tests: arrive at or leave your first saved place, as if iOS had reported it. The
+ * real handling runs (Arrive Plus, days, notifications), minus the wait for monitoring to
+ * settle; an arrival's stay is 10 seconds. Returns the place's name.
+ */
+export async function simulatePlaceEvent(kind: 'enter' | 'exit') {
+  const place = (await read<Place[]>('places', [])).find((p) => p.enabled);
+  if (!place) throw new Error('Save a place with “Remember this place” on first.');
+  const key = `visit:${place.id}`;
+  const visit = await read<Visit | null>(key, null);
+  // Start from the opposite side, so the event is a real crossing.
+  await write<Visit>(key, {
+    inside: kind === 'exit',
+    exitedAt: visit?.exitedAt || 0,
+    lastAction: visit?.lastAction || 0,
+    visitId: visit?.visitId || Crypto.randomUUID(),
+  });
+  if (kind === 'enter') {
+    await write(STARTED_KEY, 0);
+    await write<ArrivalNotice | null>(ARRIVAL_KEY, null);
+  }
+  simulatedDwellMs = 10_000;
+  try {
+    await handleEvent(
+      kind === 'enter' ? Location.GeofencingEventType.Enter : Location.GeofencingEventType.Exit,
+      {
+        identifier: place.id,
+        latitude: place.latitude,
+        longitude: place.longitude,
+        radius: place.radius,
+        state:
+          kind === 'enter'
+            ? Location.GeofencingRegionState.Inside
+            : Location.GeofencingRegionState.Outside,
+      },
+    );
+  } finally {
+    simulatedDwellMs = null;
+  }
+  return place.name;
+}
+/** A check-in went out, or you left before the dwell: the waiting arrival notification goes. */
+export async function cancelArrivalNotice(placeId?: string) {
+  const current = await read<ArrivalNotice | null>(ARRIVAL_KEY, null);
+  if (!current || current.dueAt <= Date.now()) return;
+  if (placeId && current.placeId !== placeId) return;
+  await Notifications.cancelScheduledNotificationAsync(ARRIVAL_ID).catch(() => {});
+  await write<ArrivalNotice | null>(ARRIVAL_KEY, null);
+}
+/**
+ * Entered a saved place. If a traveling banner is up, its check-in moves first and lights up
+ * now. After a short stay (so driving past doesn't count), a notification asks you to let your
+ * person know. It never assumes you checked in: tapping it opens Messages with that place's
+ * check-in, ready to send.
+ */
+async function arrivedAt(place: Place, prefs: typeof initialPreferences, now: number) {
+  const startedAt = await read<number>(STARTED_KEY, 0);
+  if (now - startedAt < MONITORING_SETTLE_MS) return;
+  if (place.presetId) await highlightArrival(place.presetId).catch(() => {});
+  if (!activeOn(prefs, now)) return;
+  // Already told them from here (checked in just before iOS noticed the arrival).
+  const r = await readReminder();
+  if (r?.source === 'checkedIn' && r.atPresetId === place.presetId && now - r.createdAt < 3600_000)
+    return;
+  const current = await read<ArrivalNotice | null>(ARRIVAL_KEY, null);
+  if (arrivalDecision({ place, current, monitoringStartedAt: startedAt, now }) === 'skip') return;
+  const [people, presets] = await Promise.all([
+    read<Person[]>('people', []),
+    read<Preset[]>('presets', initialPresets),
+  ]);
+  const person = people.find((p) => p.id === prefs.defaultRecipient) ?? people[0];
+  if (!person) return;
+  const preset = presets.find((p) => p.id === place.presetId);
+  const { title } = arrivalNotice(person.name, place.name, place.presetId === 'home');
+  const body = preset ? `Tap to send your ${preset.name} check-in.` : 'Tap to send a check-in.';
+  const dwell = simulatedDwellMs ?? ARRIVAL_DWELL_MS;
+  // The same identifier replaces any arrival notification still waiting (overlapping places).
+  const id = await localNotice(
+    title,
+    body,
+    { kind: 'arrival', presetId: preset?.id ?? '' },
+    Math.round(dwell / 1000),
+    ARRIVAL_ID,
+  );
+  if (!id) return;
+  await write<ArrivalNotice>(ARRIVAL_KEY, {
+    placeId: place.id,
+    radius: place.radius,
+    dueAt: now + dwell,
+  });
+  // Arriving somewhere saved answers "Made it?", so "stopped moving" stops watching.
+  await write<MadeItWatch | null>(MADE_IT_KEY, null);
+  await stopStillWatch();
 }
 // ---- Temporary Check-In Anchor -------------------------------------------------------------
 
@@ -259,6 +496,8 @@ export async function syncGeofences(places: Place[]) {
   )
     return;
   await Location.startGeofencingAsync(TASK, regions);
+  // iOS now reports places you're already in as entries; arrivedAt ignores those.
+  await write(STARTED_KEY, Date.now());
   await write('regions-signature', signature);
   await write('monitoring-error', '');
 }

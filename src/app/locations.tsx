@@ -121,10 +121,8 @@ export default function Locations() {
         tone="muted"
         style={{ textAlign: 'center', fontSize: 11, lineHeight: 18, marginTop: 18 }}
       >
-        Always optional. Your check-ins work without a location.{'\n'}Your location stays on this
-        phone and is never shared. Leaving a place sends only an anonymous request to start Smart
-        Check-In, never where you are or where you’ve been. Address searches go to{' '}
-        {usesGoogleSearch ? 'Google' : 'Apple'} to find the place.
+        Always optional. Your check-ins work without a location.{'\n'}Your location is never shared.
+        Address searches go to {usesGoogleSearch ? 'Google' : 'Apple'} to find the place.
       </Txt>
     </Screen>
   );

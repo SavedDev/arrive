@@ -21,10 +21,19 @@ export function yearlySavings(monthlyPrice: number, yearlyPrice: number) {
   return percent > 0 ? percent : null;
 }
 
-/** Whether a cached entitlement still counts: active, and not past its expiry. */
+/**
+ * How long past its renewal date a subscription that was set to renew still counts, while Arrive
+ * can't ask the store (in the background, or offline). The store renews it on that date, but
+ * Arrive only hears so the next time it's opened; without this, leaving a place on a renewal
+ * day (every day on TestFlight) would start nothing until Arrive was opened.
+ */
+export const RENEWAL_GRACE_MS = 7 * 24 * 60 * 60_000;
+/** Whether a cached entitlement still counts: active, and not past its expiry (plus grace). */
 export function cachedAccessValid(
-  cache: { active: boolean; expiresAt: number | null } | null,
+  cache: { active: boolean; expiresAt: number | null; willRenew?: boolean } | null,
   now: number,
 ) {
-  return !!cache?.active && (cache.expiresAt === null || cache.expiresAt > now);
+  if (!cache?.active) return false;
+  if (cache.expiresAt === null || cache.expiresAt > now) return true;
+  return !!cache.willRenew && now < cache.expiresAt + RENEWAL_GRACE_MS;
 }

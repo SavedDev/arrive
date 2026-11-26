@@ -32,7 +32,7 @@ Arrive asks only for what a feature needs, and you can say no. Manual check-ins 
 - **Location:** used to remember places, to notice when you leave one (Smart Check-In) and, if you pair with someone, to notice when you've gone separate ways (Smart Reminders). Background location is optional.
 - **Contacts:** on iPhone, the system contact picker shares only the contact you choose, not your whole address book.
 - **Camera:** used only to scan Arrive QR codes.
-- **Notifications:** used when a Lock Screen reminder can't be shown, and to confirm a send.
+- **Notifications:** used when a Lock Screen reminder can't be shown, and to ask whether you made it after you send "Leaving" or "Homebound".
 
 You can change any of these at any time in your phone's Settings.
 

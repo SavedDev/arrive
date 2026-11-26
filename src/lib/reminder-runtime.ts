@@ -1,10 +1,12 @@
 import { Platform } from 'react-native';
 import { requireOptionalNativeModule } from 'expo';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import { read, write } from './storage';
 import { localNotice } from './notifications';
 import {
   createReminder,
+  isOnLockScreen,
   isOpen,
   isShowing,
   reconcile,
@@ -13,7 +15,7 @@ import {
   type ReminderEvent,
   type ReminderSource,
 } from './reminder';
-import { activityShortcuts } from './domain';
+import { activityShortcuts, errorMessage } from './domain';
 import { hasAccessCached } from './access';
 import { cancelDepartureCheckIn, requestDepartureCheckIn } from './smart-reminders';
 import { telUrl } from './send-request';
@@ -23,6 +25,7 @@ import {
   initialPreferences,
   initialPresets,
   type Person,
+  type Place,
   type Preferences,
   type Preset,
 } from './types';
@@ -60,6 +63,15 @@ type Factory = typeof import('@/widgets/ReminderActivity').default;
 type Instance = ReturnType<Factory['start']>;
 let factory: Promise<Factory | null> | null = null;
 
+/** For the developer tests: which app, build and iOS this is, and whether widgets are in it. */
+function runningOn() {
+  const expoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+  return [
+    expoGo ? 'running in Expo Go' : 'running in Arrive’s own build',
+    `iOS ${Platform.Version}`,
+    `widgets module ${requireOptionalNativeModule('ExpoWidgets') ? 'found' : 'missing'}`,
+  ].join(', ');
+}
 /** Live Activities need iOS 16.2+ and a build that includes Arrive's widget extension. */
 export const liveActivitiesAvailable =
   Platform.OS === 'ios' &&
@@ -104,8 +116,22 @@ async function props(r: Reminder): Promise<ReminderActivityProps> {
   // The call button names the person by their id only; Arrive looks up the number when tapped.
   const callee = p.activityCallButton ? recipient : undefined;
   // Favorites choose the 2–4 shortcuts; the draggable Home preview controls their order.
-  const coming = !!r.coming && r.phase !== 'completed';
-  const shown = activityShortcuts(presets, p.activityPresetOrder);
+  const checkedIn = r.source === 'checkedIn';
+  const coming = !checkedIn && !!r.coming && r.phase !== 'completed';
+  const favorites = activityShortcuts(presets, p.activityPresetOrder);
+  // Arrived at a saved place while traveling: its check-in goes first, highlighted, and the
+  // others stay (it may not be where you're stopping).
+  const arrived = r.highlightPresetId
+    ? presets.find((preset) => preset.id === r.highlightPresetId)
+    : undefined;
+  const shown = checkedIn
+    ? []
+    : arrived
+      ? [arrived, ...favorites.filter((preset) => preset.id !== arrived.id)].slice(
+          0,
+          Math.max(favorites.length, 1),
+        )
+      : favorites;
   return {
     phase:
       r.phase === 'checkingIn' ? 'checkingIn' : r.phase === 'completed' ? 'completed' : 'active',
@@ -116,17 +142,27 @@ async function props(r: Reminder): Promise<ReminderActivityProps> {
         ? 'Check-in sent ✓'
         : r.phase === 'checkingIn'
           ? 'Opening Messages…'
-          : r.source === 'smart'
-            ? 'Went separate ways? Check in.'
-            : r.placeName && r.source !== 'manual'
-              ? `Left ${r.placeName}. Where to?`
-              : // With nobody added yet, a blank stands in for the name.
-                `Check in with ${recipient?.name.trim() || NAME_BLANK}`,
+          : checkedIn
+            ? `Checked in${r.atName ? ` at ${r.atName}` : ''} ✓`
+            : r.source === 'smart'
+              ? 'Went separate ways? Check in.'
+              : r.placeName && r.source !== 'manual'
+                ? `Left ${r.placeName}. Where to?`
+                : // With nobody added yet, a blank stands in for the name.
+                  `Check in with ${recipient?.name.trim() || NAME_BLANK}`,
     checkInUrl: QUICK_CHECK_IN_URL,
     dismissUrl: DISMISS_URL,
     interactive: interactiveActivities,
     exactIcons: exactWidgetIconsAvailable,
     ...(coming ? { coming: { url: `${QUICK_CHECK_IN_URL}&coming=1` } } : {}),
+    ...(checkedIn && r.phase !== 'completed'
+      ? {
+          departNow: {
+            leaving: { url: `${QUICK_CHECK_IN_URL}&leaving=1` },
+            ...(r.coming ? { homebound: { url: `${QUICK_CHECK_IN_URL}&coming=1` } } : {}),
+          },
+        }
+      : {}),
     ...(callee && telUrl(callee.phone)
       ? {
           call: {
@@ -143,6 +179,7 @@ async function props(r: Reminder): Promise<ReminderActivityProps> {
       // Each one opens Messages with that check-in's words and person.
       url: `${QUICK_CHECK_IN_URL}&preset=${encodeURIComponent(preset.id)}`,
       ...(accents[preset.color] ?? accents.mint),
+      ...(preset.id === arrived?.id ? { highlight: true } : {}),
     })),
   };
 }
@@ -150,9 +187,18 @@ async function props(r: Reminder): Promise<ReminderActivityProps> {
 // Stored, because a Lock Screen tap can launch Arrive fresh in the background.
 const PUSHED_KEY = 'reminder-activity-pushed';
 /** Starts the Live Activity, or reuses the one already showing. Returns its id, or null. */
+/** Why the last Live Activity couldn't start or update, for the developer tests to show. */
+let activityProblem = '';
+export const liveActivityProblem = () => activityProblem;
 async function showActivity(r: Reminder): Promise<string | null> {
   const f = await loadFactory();
-  if (!f) return null;
+  if (!f) {
+    activityProblem = !liveActivitiesAvailable
+      ? `Live Activities aren’t available here (${runningOn()}).`
+      : 'The Live Activity layout couldn’t be loaded.';
+    return null;
+  }
+  activityProblem = '';
   const running = await instances();
   const [first, ...extra] = running;
   // One Arrive reminder at a time: reuse the first, end any others.
@@ -175,8 +221,9 @@ async function showActivity(r: Reminder): Promise<string | null> {
     const id = f.start(next, CHECK_IN_URL, stale).getId();
     await write(PUSHED_KEY, `${id}:${json}`);
     return id;
-  } catch {
+  } catch (e) {
     // Live Activities are turned off for Arrive in Settings, or iOS refused the request.
+    activityProblem = errorMessage(e) || 'iOS refused to start it.';
     return null;
   }
 }
@@ -251,15 +298,22 @@ async function scheduleDepartureReminderNow(input: {
   const dismissed = await read<string[]>(DISMISSED_KEY, []);
   if (dismissed.includes(input.visitId)) return undefined;
   const current = await readReminder();
-  // One reminder at a time. A new departure replaces a pending one, but not one already showing.
-  if (isShowing(current)) return undefined;
+  // One reminder at a time. A new departure replaces a pending one, but not one already showing
+  // (a "checked in" banner already offers Leaving and Homebound).
+  if (isOnLockScreen(current)) return undefined;
   // The Live Activity is the reminder. iOS won't let Arrive start one from the background, so
   // the Smart Check-In service starts it by push after the delay. Only if that's impossible
   // (no service, no network, Live Activities off) does one notification stand in for it.
   const delay = input.delayMinutes === 1 || input.delayMinutes === 10 ? input.delayMinutes : 5;
   const viaLiveActivity = await requestDepartureCheckIn(input.visitId, delay, input.coming)
     .then(() => true)
-    .catch(() => false);
+    // Kept for Settings, so a reminder that fell back to a notification says why.
+    .catch((e) =>
+      write('smart-reminders-error', `Leaving a place: ${errorMessage(e)}`).then(
+        () => false,
+        () => false,
+      ),
+    );
   const notificationId = viaLiveActivity
     ? undefined
     : await localNotice(
@@ -283,6 +337,8 @@ async function scheduleDepartureReminderNow(input: {
         placeName: input.placeName,
         recipientId: input.recipientId,
         ...(input.coming ? { coming: true } : {}),
+        // The service starts this banner by push; Arrive adopts it instead of starting another.
+        ...(viaLiveActivity ? { remote: true } : {}),
       },
       now,
       input.delayMinutes * 60000,
@@ -430,6 +486,90 @@ async function dismissReminderNow() {
   await Notifications.cancelScheduledNotificationAsync('departure-manual').catch(() => {});
 }
 
+// ---- After a check-in --------------------------------------------------------------------
+
+/**
+ * Homebound is offered only when there's a saved Home, the check-in wasn't Home, and you're not
+ * at Home right now.
+ */
+async function homeboundOffered(presetId: string) {
+  if (presetId === 'home') return false;
+  const home = (await read<Place[]>('places', [])).find((p) => p.presetId === 'home');
+  if (!home) return false;
+  return !(await read<{ inside?: boolean } | null>(`visit:${home.id}`, null))?.inside;
+}
+/** Withdraws a departure reminder still waiting, here and on the service. */
+async function withdrawPending() {
+  const pending = await readReminder();
+  if (pending?.phase !== 'scheduled') return;
+  await save(transition(pending, { type: 'cancel' }, Date.now()));
+  if (pending.placeId)
+    await Notifications.cancelScheduledNotificationAsync(`departure-${pending.placeId}`).catch(
+      () => {},
+    );
+  await cancelDepartureCheckIn().catch(() => {});
+}
+
+/**
+ * A check-in went out. It replaces whatever reminder came before, on the one Lock Screen banner:
+ * - an arrival ("Made it to work") → "Checked in at Work", with Leaving and Homebound;
+ * - Leaving or Homebound → your check-ins, ready for when you get there.
+ * It stays until the next check-in, ✕, or it expires. Without Smart Check-In or Live
+ * Activities, the reminder simply completes, as before.
+ */
+async function afterCheckInNow(
+  sent: { kind: 'arrival'; presetId: string; name: string } | { kind: 'leaving' | 'homebound' },
+) {
+  await withdrawPending();
+  await Notifications.cancelScheduledNotificationAsync('departure-manual').catch(() => {});
+  const p = await prefs();
+  const now = Date.now();
+  if (!liveActivitiesAvailable || !p.smartCheckIn || !(await hasAccessCached())) {
+    const r = await apply({ type: 'complete' });
+    await endActivities(r?.phase === 'completed' ? r : undefined);
+    return;
+  }
+  const next =
+    sent.kind === 'arrival'
+      ? createReminder(
+          {
+            id: `checkedIn-${now}`,
+            source: 'checkedIn',
+            recipientId: p.defaultRecipient,
+            atPresetId: sent.presetId,
+            atName: sent.name,
+            ...((await homeboundOffered(sent.presetId)) ? { coming: true } : {}),
+          },
+          now,
+        )
+      : createReminder(
+          { id: `travel-${now}`, source: 'travel', recipientId: p.defaultRecipient },
+          now,
+        );
+  // Reuses the banner already showing (one Arrive banner at a time), or starts it.
+  const activityId = await showActivity(next);
+  await save(
+    activityId
+      ? transition(next, { type: 'activate', activityId }, now)
+      : transition(next, { type: 'complete' }, now),
+  );
+}
+
+/**
+ * Entered a saved place (from the background geofence task). A traveling banner keeps all its
+ * check-ins, with this place's first and highlighted. A "checked in" banner is left alone:
+ * being near a place isn't the same as being there. Never starts a banner (iOS doesn't allow
+ * that from the background, and a dismissed one should stay gone).
+ */
+async function highlightArrivalNow(presetId: string) {
+  const current = await readReminder();
+  if (!isOnLockScreen(current) || current.source === 'checkedIn') return;
+  if (current.highlightPresetId === presetId) return;
+  const next: Reminder = { ...current, highlightPresetId: presetId, updatedAt: Date.now() };
+  await save(next);
+  await showActivity(next);
+}
+
 // ---- Development only ---------------------------------------------------------------------
 
 /** Simulates leaving a place: a reminder becomes due after a few seconds. */
@@ -512,3 +652,12 @@ export const completeReminder = serial(completeReminderNow);
 export const dismissReminder = serial(dismissReminderNow);
 export const simulateDeparture = serial(simulateDepartureNow);
 export const updateTestActivity = serial(updateTestActivityNow);
+export const afterCheckIn = serial(afterCheckInNow);
+export const highlightArrival = serial(highlightArrivalNow);
+/** Developer test: the reminder runs out now, as if its time had passed. */
+export const expireReminder = serial(async () => {
+  const r = await readReminder();
+  if (!isOpen(r)) throw new Error('No reminder is open. Start one first.');
+  await save({ ...r, expiresAt: Date.now() - 1 });
+  return reconcileReminderNow();
+});

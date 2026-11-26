@@ -14,6 +14,7 @@ export default function CheckInLink() {
     quick?: string;
     from?: string;
     coming?: string;
+    leaving?: string;
     call?: string;
   }>();
   const { colors } = useApp();

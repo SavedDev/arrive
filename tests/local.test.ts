@@ -417,4 +417,125 @@ test('paywall wording comes from the store’s offer', async () => {
   assert.equal(cachedAccessValid({ active: true, expiresAt: null }, now), true);
   assert.equal(cachedAccessValid({ active: false, expiresAt: null }, now), false);
   assert.equal(cachedAccessValid(null, now), false);
+  // Past its renewal date but set to renew: still counts for a week, until Arrive can ask.
+  const { RENEWAL_GRACE_MS } = await import('../src/lib/paywall');
+  const renewing = { active: true, expiresAt: now - 1, willRenew: true };
+  assert.equal(cachedAccessValid(renewing, now), true);
+  assert.equal(cachedAccessValid(renewing, now + RENEWAL_GRACE_MS), false);
+  assert.equal(cachedAccessValid({ ...renewing, willRenew: false }, now), false);
+  assert.equal(cachedAccessValid({ ...renewing, active: false }, now), false);
+});
+
+test('"Made it?": asked only within 3 hours of Leaving or Homebound, naming the person', async () => {
+  const { MADE_IT_WINDOW_MS, madeItDue, madeItNotice } = await import('../src/lib/smart-checkin');
+  const on = { smartCheckIn: true };
+  const watch = { startedAt: 1_000_000 };
+  assert.equal(madeItDue(watch, on, watch.startedAt + 20 * 60_000), true);
+  assert.equal(madeItDue(watch, on, watch.startedAt + MADE_IT_WINDOW_MS), true);
+  // Too late, nothing to watch, Smart Check-In off, or a clock that went backwards: no nudge.
+  assert.equal(madeItDue(watch, on, watch.startedAt + MADE_IT_WINDOW_MS + 1), false);
+  assert.equal(madeItDue(null, on, watch.startedAt), false);
+  assert.equal(madeItDue(watch, { smartCheckIn: false }, watch.startedAt + 60_000), false);
+  assert.equal(madeItDue(watch, on, watch.startedAt - 1), false);
+  assert.deepEqual(madeItNotice('Sarah', 'Home'), {
+    title: 'Made it? Let Sarah know.',
+    body: 'Tap to send your Home check-in.',
+  });
+  assert.deepEqual(madeItNotice(' ', undefined), {
+    title: 'Made it? Let your person know.',
+    body: 'Tap to send a check-in.',
+  });
+});
+
+test('"Made it?" when stopped: each move pushes it later, never past 3 hours, and asks once', async () => {
+  const { MADE_IT_WINDOW_MS, madeItAsked, nextStillNudge } =
+    await import('../src/lib/smart-checkin');
+  const watch = { startedAt: 0 };
+  // Moving 20 minutes in, with 10 minutes still: due at 30 minutes.
+  assert.equal(nextStillNudge(watch, 10, 20 * 60_000), 30 * 60_000);
+  // A move near the end that would set it past the window drops it instead.
+  assert.equal(nextStillNudge(watch, 10, MADE_IT_WINDOW_MS - 5 * 60_000), null);
+  assert.equal(nextStillNudge(watch, 5, MADE_IT_WINDOW_MS - 5 * 60_000), MADE_IT_WINDOW_MS);
+  // Once its time has passed it has gone off, so arriving somewhere doesn't ask again.
+  assert.equal(madeItAsked({ startedAt: 0, stillDueAt: 30 * 60_000 }, 31 * 60_000), true);
+  assert.equal(madeItAsked({ startedAt: 0, stillDueAt: 30 * 60_000 }, 29 * 60_000), false);
+  assert.equal(madeItAsked({ startedAt: 0 }, 31 * 60_000), false);
+});
+
+test('a departure the service starts by push never gets a second banner from Arrive', async () => {
+  const { CHECKED_IN_LIFETIME, isOnLockScreen } = await import('../src/lib/reminder');
+  const remote = createReminder(
+    { id: 'push-1', source: 'departure', remote: true },
+    now,
+    5 * 60000,
+  );
+  // Due, but the push hasn't landed: wait, don't start one.
+  const waiting = reconcile(remote, now + 5 * 60000, on);
+  assert.equal(waiting.action, 'none');
+  assert.equal(waiting.reminder?.phase, 'active');
+  // Not on the Lock Screen yet, so it doesn't block anything else.
+  assert.equal(isOnLockScreen(waiting.reminder), false);
+  // The pushed banner is there: adopt and restyle it.
+  assert.equal(
+    reconcile(waiting.reminder, now + 6 * 60000, { ...on, running: 1 }).action,
+    'update',
+  );
+  // "Checked in" lasts a whole stay.
+  const checkedIn = createReminder({ id: 'c', source: 'checkedIn', atName: 'Work' }, now);
+  assert.equal(checkedIn.expiresAt - now, CHECKED_IN_LIFETIME);
+});
+
+test('Leaving names where you checked in, and drops the placeholder when there is none', async () => {
+  const { leavingText } = await import('../src/lib/domain');
+  assert.equal(leavingText('Leaving [location] now', 'Work'), 'Leaving Work now');
+  assert.equal(leavingText('Leaving [location] now', ''), 'Leaving now');
+  assert.equal(leavingText('On my way from [Location]', undefined), 'On my way from');
+  assert.equal(leavingText('Heading out ❤️', 'Gym'), 'Heading out ❤️');
+});
+
+test('Leaving links are their own request too', async () => {
+  const { checkInLinkQuery, sendRequestFromQuery } = await import('../src/lib/send-request');
+  const leaving = sendRequestFromQuery(
+    checkInLinkQuery('arrive://check-in?from=reminder&quick=1&leaving=1')!,
+  );
+  assert.equal(leaving.leaving, true);
+  assert.equal(leaving.useDefault, false);
+  assert.equal(leaving.coming, undefined);
+});
+
+test('arriving at a saved place: one notification, not when passing by, settling or too soon', async () => {
+  const { ARRIVAL_COOLDOWN_MS, MONITORING_SETTLE_MS, arrivalDecision, arrivalNotice } =
+    await import('../src/lib/smart-checkin');
+  const work = { id: 'work', radius: 150 };
+  const t = 10 * 60 * 60_000;
+  const decide = (current: Parameters<typeof arrivalDecision>[0]['current'], at = t) =>
+    arrivalDecision({ place: work, current, monitoringStartedAt: 0, now: at });
+  assert.equal(decide(null), 'notify');
+  // Monitoring just (re)started: iOS reports places you're already in. Not an arrival.
+  assert.equal(
+    arrivalDecision({ place: work, current: null, monitoringStartedAt: t - 1000, now: t }),
+    'skip',
+  );
+  assert.equal(
+    arrivalDecision({
+      place: work,
+      current: null,
+      monitoringStartedAt: t - MONITORING_SETTLE_MS,
+      now: t,
+    }),
+    'notify',
+  );
+  // One shown a minute ago: cooldown. Long ago: fine.
+  assert.equal(decide({ placeId: 'gym', radius: 100, dueAt: t - 60_000 }), 'skip');
+  assert.equal(decide({ placeId: 'gym', radius: 100, dueAt: t - ARRIVAL_COOLDOWN_MS }), 'notify');
+  // Overlapping places, one still waiting: the smaller place wins, the bigger one doesn't.
+  assert.equal(decide({ placeId: 'campus', radius: 400, dueAt: t + 60_000 }), 'notify');
+  assert.equal(decide({ placeId: 'desk', radius: 80, dueAt: t + 60_000 }), 'skip');
+  assert.equal(decide({ placeId: 'work', radius: 150, dueAt: t + 60_000 }), 'skip');
+  assert.deepEqual(arrivalNotice('Sarah', 'Work', false), {
+    title: 'Let Sarah know you made it to Work',
+  });
+  assert.deepEqual(arrivalNotice('Sarah', 'Home', true), {
+    title: 'Let Sarah know you made it Home',
+  });
 });

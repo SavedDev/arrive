@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
-import type { HistoryEntry, Preferences } from './types';
+import type { HistoryEntry } from './types';
 export function initializeNotifications() {
   if (Platform.OS === 'web') return;
   Notifications.setNotificationHandler({
@@ -76,17 +76,10 @@ export async function cancelReminders() {
       .map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier)),
   );
 }
-export async function confirmSend(entry: HistoryEntry, prefs: Preferences) {
+/** A check-in went out: any departure reminder still waiting is no longer needed. */
+export async function confirmSend(entry: HistoryEntry) {
   if (entry.status !== 'sent') return;
   await cancelReminders();
-  if (!prefs.confirmations) return;
-  await localNotice(
-    'Check-in sent! ✓',
-    'Messages reported a send action. Delivery is not verified.',
-    { historyId: entry.id },
-    undefined,
-    `sent-${entry.id}`,
-  );
 }
 export async function clearNotifications() {
   if (Platform.OS === 'web') return;

@@ -354,9 +354,15 @@ export default function LocationEditor() {
       <Section title="Smart Check-In" />
       <Row
         title="Remember this place"
-        subtitle="Leaving it can start Smart Check-In on your Lock Screen. Needs Always Allow location. Where you are stays on this phone and is never shared."
+        subtitle="When you leave, Arrive reminds you on your Lock Screen to check in. Needs location access set to Always."
         right={<Toggle value={enabled} onChange={setEnabled} label="Remember this place" />}
       />
+      <Txt
+        tone="muted"
+        style={{ textAlign: 'center', fontSize: 11, lineHeight: 18, marginTop: 18 }}
+      >
+        Your location is never shared.
+      </Txt>
       <ConfirmDialog
         visible={!!discard}
         title="Discard your changes?"

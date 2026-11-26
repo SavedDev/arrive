@@ -68,7 +68,7 @@ export default function History() {
                 <View style={{ flex: 1 }}>
                   <Txt weight="bold">{e.presetName}</Txt>
                   <Txt tone="muted" style={{ fontSize: 12 }}>
-                    Prepared for {e.recipientName}
+                    To {e.recipientName}
                   </Txt>
                 </View>
                 <Txt tone="muted" style={{ fontSize: 11 }}>
@@ -78,20 +78,23 @@ export default function History() {
                   })}
                 </Txt>
               </View>
-              <Txt style={{ marginTop: 15, fontSize: 14 }}>Prepared: {e.preparedText}</Txt>
+              <Txt style={{ marginTop: 15, fontSize: 14 }}>{e.preparedText}</Txt>
               <Txt
                 tone={e.status === 'sent' ? 'green' : 'muted'}
                 style={{ fontSize: 12, marginTop: 12 }}
               >
-                {e.status === 'sent' ? 'Sent via Messages' : 'Send unverified · Messages opened'}
+                {e.status === 'sent'
+                  ? 'Sent in Messages'
+                  : 'Opened in Messages, may not have been sent'}
               </Txt>
             </Card>
           </View>
         ))
       )}
       <Txt tone="muted" style={{ fontSize: 12, lineHeight: 19, marginTop: 16 }}>
-        Kept only on this device for 3 days (72 hours). The native composer lets you change the text
-        and recipient. Arrive cannot read replies, confirm the final content, or verify delivery.
+        Your history stays on this phone for 3 days. Since you send from Messages, you can change a
+        message before it goes, and Arrive can’t see what you sent, whether it was delivered, or any
+        replies.
       </Txt>
       <ConfirmDialog
         visible={confirm}

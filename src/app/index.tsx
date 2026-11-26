@@ -3,7 +3,7 @@ import { AttentionBorder } from '@/components/attention-border';
 import { LocationWarning, useAlwaysLocationOff } from '@/components/location-warning';
 import { ShareBanner } from '@/components/share-banner';
 import { Avatar, IconButton, PresetGrid, Screen, Section, styles, Txt } from '@/components/ui';
-import { comingPreset, useSendCheckIn } from '@/components/use-send-check-in';
+import { comingPreset, leavingPreset, useSendCheckIn } from '@/components/use-send-check-in';
 import { Wordmark } from '@/components/wordmark';
 import { useAccess } from '@/lib/access';
 import { activityPresets, activityShortcuts } from '@/lib/domain';
@@ -71,23 +71,37 @@ export default function Home() {
           });
         }
         const id = r.presetId || (r.useDefault ? prefs.defaultPreset : '');
-        // "Coming" isn't one of the check-ins on Home: it's the heading-home message.
-        const preset = r.coming
-          ? comingPreset(prefs.comingMessage)
-          : presets.find((p) => p.id === id);
-        if (!preset) return hideSplash();
-        whenOnScreen(() => {
-          const sending = send(preset, {
-            recipientId: r.recipientId,
-            fromReminder: r.fromReminder,
-            coming: r.coming,
+        // Leaving and Homebound aren't check-ins on Home: they're the leaving and heading-home
+        // messages. Leaving names where you checked in, so it's looked up first.
+        void (async () => {
+          const preset = r.leaving
+            ? await leavingPreset(prefs.leavingMessage)
+            : r.coming
+              ? comingPreset(prefs.comingMessage)
+              : presets.find((p) => p.id === id);
+          if (!preset) return hideSplash();
+          whenOnScreen(() => {
+            const sending = send(preset, {
+              recipientId: r.recipientId,
+              fromReminder: r.fromReminder,
+              coming: r.coming,
+              leaving: r.leaving,
+            });
+            // Messages takes a moment to slide up; the launch screen hides behind it.
+            setTimeout(hideSplash, 700);
+            void sending.finally(hideSplash);
           });
-          // Messages takes a moment to slide up; the launch screen hides behind it.
-          setTimeout(hideSplash, 700);
-          void sending.finally(hideSplash);
-        });
+        })();
       }),
-    [presets, people, prefs.defaultPreset, prefs.defaultRecipient, prefs.comingMessage, send],
+    [
+      presets,
+      people,
+      prefs.defaultPreset,
+      prefs.defaultRecipient,
+      prefs.comingMessage,
+      prefs.leavingMessage,
+      send,
+    ],
   );
   // Arrive keeps one person.
   const defaultPerson = people[0];

@@ -30,6 +30,8 @@ export type ReminderPlace = {
   bg: string;
   ink: string;
   dark: string;
+  /** The saved place you just arrived at: shown first, in Arrive green, so it stands out. */
+  highlight?: boolean;
 };
 
 export type ReminderActivityProps = {
@@ -48,10 +50,15 @@ export type ReminderActivityProps = {
   /** False in older installed binaries that do not contain the exact icon asset catalog. */
   exactIcons: boolean;
   /**
-   * Only when this Smart Check-In started because you left the spot of your last check-in:
-   * "Coming" (heading home), shown first. Never for other triggers.
+   * "Homebound" (heading home), shown first: when you left the spot of your last check-in.
+   * Never for other triggers.
    */
   coming?: { url: string };
+  /**
+   * Just checked in: instead of check-ins, two wide buttons. Homebound is left out when you're
+   * home already, or there's no saved Home.
+   */
+  departNow?: { leaving: { url: string }; homebound?: { url: string } };
   /**
    * Only when Appearance → Call button is on and the person has a number: opens Arrive, which
    * asks iOS to call them. iOS confirms every call, so nothing is dialled from the banner alone.
@@ -79,6 +86,7 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
   const done = props.phase === 'completed';
   const places = done ? [] : props.places;
   const coming = done ? undefined : props.coming;
+  const departNow = done ? undefined : props.departNow;
   // Fills the row evenly: SwiftUI caps a frame at the space available.
   const fill = 1000;
   const brandMark = (size: number) => (
@@ -164,7 +172,7 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
         </Text>
       </VStack>
       <Spacer />
-      {!done && !places.length && checkIn}
+      {!done && !places.length && !departNow && checkIn}
       {call}
       {!done && dismiss}
     </HStack>
@@ -202,16 +210,16 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
         // Two frames: expo-ui ignores maxWidth when a height is given in the same frame.
         frame({ maxWidth: fill }),
         frame({ height: 58 }),
-        background(dark ? p.dark : p.bg),
+        background(p.highlight ? '#287B5A' : dark ? p.dark : p.bg),
         clipShape('roundedRectangle', 15),
       ]}
     >
-      {presetIcon(p, 20, dark ? p.bg : p.ink)}
+      {presetIcon(p, 20, p.highlight ? '#FFFFFF' : dark ? p.bg : p.ink)}
       {showLabel && (
         <Text
           modifiers={[
-            font({ size: 10, weight: 'medium' }),
-            foregroundStyle(dark ? ink : p.ink),
+            font({ size: 10, weight: p.highlight ? 'semibold' : 'medium' }),
+            foregroundStyle(p.highlight ? '#FFFFFF' : dark ? ink : p.ink),
             lineLimit(1),
             minimumScaleFactor(0.7),
           ]}
@@ -228,11 +236,11 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
       modifiers={[
         frame({ maxWidth: fill }),
         frame({ height: 58 }),
-        background(`${p.ink}8C`),
+        background(p.highlight ? '#2E9A6C' : `${p.ink}8C`),
         clipShape('roundedRectangle', 15),
       ]}
     >
-      {presetIcon(p, 21, p.bg)}
+      {presetIcon(p, 21, p.highlight ? '#FFFFFF' : p.bg)}
       {showLabel && (
         <Text
           modifiers={[
@@ -247,7 +255,7 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
       )}
     </VStack>
   );
-  // "Coming": a curved return arrow, tinted green so it reads as its own kind of action.
+  // "Homebound": a house, tinted green so it reads as its own kind of action.
   const comingLook = (light: boolean, showLabel: boolean) =>
     light ? (
       <VStack
@@ -258,10 +266,10 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
           clipShape('roundedRectangle', 15),
         ]}
       >
-        <Image systemName="arrow.uturn.backward" color={green} size={18} />
+        <Image systemName="house.fill" color={green} size={17} />
         {showLabel && (
           <Text modifiers={[font({ size: 9, weight: 'semibold' }), foregroundStyle(green)]}>
-            Coming
+            Homebound
           </Text>
         )}
       </VStack>
@@ -275,20 +283,52 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
           clipShape('roundedRectangle', 15),
         ]}
       >
-        <Image systemName="arrow.uturn.backward" color="#EAF2E7" size={18} />
+        <Image systemName="house.fill" color="#EAF2E7" size={17} />
         {showLabel && (
           <Text modifiers={[font({ size: 9, weight: 'semibold' }), foregroundStyle('#F0F5ED')]}>
-            Coming
+            Homebound
           </Text>
         )}
       </VStack>
     );
-  // A hairline between Coming and the arrival shortcuts.
+  // A hairline between Homebound and the arrival shortcuts.
   const divider = (height: number) => (
     <Rectangle
       modifiers={[frame({ width: 1, height }), foregroundStyle(dark ? '#FFFFFF33' : '#29403626')]}
     />
   );
+  // Just checked in: Leaving (the return arrow) and Homebound (a house), side by side.
+  const departButton = (url: string, symbol: SymbolName, label: string, light: boolean) => (
+    <Link destination={url} modifiers={[frame({ maxWidth: fill }), accessibilityLabel(label)]}>
+      <HStack
+        spacing={7}
+        modifiers={[
+          frame({ maxWidth: fill }),
+          frame({ height: 46 }),
+          background(light ? (dark ? '#2B4332' : '#E4F0E8') : '#287B5ACC'),
+          clipShape('roundedRectangle', 14),
+        ]}
+      >
+        <Image systemName={symbol} color={light ? green : '#EAF2E7'} size={15} />
+        <Text
+          modifiers={[
+            font({ size: 14, weight: 'semibold' }),
+            foregroundStyle(light ? green : '#F0F5ED'),
+          ]}
+        >
+          {label}
+        </Text>
+      </HStack>
+    </Link>
+  );
+  const depart = (light: boolean) =>
+    departNow && (
+      <HStack spacing={8}>
+        {departButton(departNow.leaving.url, 'arrow.uturn.backward', 'Leaving', light)}
+        {departNow.homebound &&
+          departButton(departNow.homebound.url, 'house.fill', 'Homebound', light)}
+      </HStack>
+    );
   const choices = (light: boolean, compact = false) => {
     const showLabels = props.showButtonLabels && places.length < 5;
     return (
@@ -296,7 +336,7 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
         {coming && (
           <Link
             destination={coming.url}
-            modifiers={[frame({ width: compact ? 46 : 58 }), accessibilityLabel('Coming')]}
+            modifiers={[frame({ width: compact ? 46 : 58 }), accessibilityLabel('Homebound')]}
           >
             {comingLook(light, showLabels)}
           </Link>
@@ -317,7 +357,7 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
         ]}
       >
         {header}
-        {(places.length > 0 || !!coming) && choices(!glass)}
+        {departNow ? depart(!glass) : (places.length > 0 || !!coming) && choices(!glass)}
       </VStack>
     ),
     compactLeading: done ? (
@@ -367,6 +407,8 @@ const ReminderActivity = (props: ReminderActivityProps, environment: LiveActivit
       <Text modifiers={[font({ size: 13 }), foregroundStyle('#ADBFB1')]}>
         Your check-in was sent.
       </Text>
+    ) : departNow ? (
+      <VStack modifiers={[padding({ top: 6 })]}>{depart(false)}</VStack>
     ) : places.length || coming ? (
       <VStack modifiers={[padding({ top: 6 })]}>{choices(false, true)}</VStack>
     ) : (

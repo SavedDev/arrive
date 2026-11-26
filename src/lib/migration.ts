@@ -25,8 +25,6 @@ export async function migrateLocalData() {
         Object.assign(prefs, { [key]: old[key] });
     }
     prefs.defaultRecipient = '';
-    prefs.confirmations =
-      old.confirmations === 'all' || old.confirmations === true || old.confirmations === undefined;
     const presets = await storage.read('presets', initialPresets);
     const places = await storage.read<(Place & { behavior?: string })[]>('places', []);
     await storage.write('preferences', prefs);

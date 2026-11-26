@@ -117,3 +117,12 @@ export const errorMessage = (e: unknown) =>
     : typeof e === 'object' && e && 'message' in e
       ? String(e.message)
       : 'Something went wrong. Please try again.';
+
+/**
+ * The Leaving message with "[location]" filled in: where you last checked in, e.g. "Leaving
+ * Work now". Without a place, the placeholder (and the space before it) goes.
+ */
+export const leavingText = (template: string, place?: string) =>
+  place?.trim()
+    ? template.replace(/\[location\]/gi, place.trim())
+    : template.replace(/\s*\[location\]/gi, '').trim();

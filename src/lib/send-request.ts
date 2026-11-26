@@ -9,8 +9,10 @@ export type SendRequest = {
   useDefault?: boolean;
   recipientId?: string;
   fromReminder?: boolean;
-  /** "Coming" from the Lock Screen: the heading-home message instead of a check-in. */
+  /** "Homebound" from the Lock Screen: the heading-home message instead of a check-in. */
   coming?: boolean;
+  /** "Leaving" from the Lock Screen: the leaving message, naming where you checked in. */
+  leaving?: boolean;
   /** The banner's call button: phone this person instead of sending a check-in. */
   call?: boolean;
 };
@@ -54,8 +56,14 @@ export function sendRequestFromQuery(query: Record<string, string | undefined>):
     };
   return {
     presetId: choose ? '' : query.preset || '',
-    useDefault: !choose && !query.preset && query.coming !== '1' && query.quick === '1',
+    useDefault:
+      !choose &&
+      !query.preset &&
+      query.coming !== '1' &&
+      query.leaving !== '1' &&
+      query.quick === '1',
     ...(query.coming === '1' && !choose ? { coming: true } : {}),
+    ...(query.leaving === '1' && !choose ? { leaving: true } : {}),
     recipientId: query.recipient || undefined,
     fromReminder: query.from === 'reminder',
   };

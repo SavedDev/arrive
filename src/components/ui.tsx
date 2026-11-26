@@ -78,6 +78,28 @@ export function Txt({
     />
   );
 }
+/**
+ * Green, tappable words inside a sentence that open Locations, e.g. "saved places". A plain Text,
+ * so it keeps the size of the sentence around it.
+ */
+/** Inside a Screen: closes it with its usual animation, then runs `then`. */
+const CloseThen = React.createContext<((then: () => void) => void) | null>(null);
+export function PlacesLink({ children }: { children: React.ReactNode }) {
+  const { colors } = useApp();
+  const closeThen = React.useContext(CloseThen);
+  // Closes the sheet it's in first, so Locations opens in its place rather than on top.
+  const open = () => router.push('/locations');
+  return (
+    <Text
+      accessibilityRole="link"
+      accessibilityHint="Opens Locations"
+      onPress={() => (closeThen ? closeThen(open) : open())}
+      style={{ color: colors.green, fontFamily: fonts.medium }}
+    >
+      {children}
+    </Text>
+  );
+}
 /** Space kept between the field being typed in and the top of the keyboard. */
 const KEYBOARD_GAP = 70;
 export const goBack = () => (router.canGoBack() ? router.back() : router.replace('/'));
@@ -175,9 +197,18 @@ export function Screen({
     });
     return () => cancelAnimationFrame(frame);
   }, [backdropProgress, overlaySheet, sheetProgress]);
+  // Something to do once this screen has closed, e.g. open another sheet in its place.
+  const afterClose = React.useRef<(() => void) | null>(null);
+  const closed = React.useCallback(() => {
+    onClose();
+    const then = afterClose.current;
+    afterClose.current = null;
+    // A native sheet takes a moment to slide away; iOS can't present another until it has.
+    if (then) setTimeout(then, overlaySheet ? 60 : 450);
+  }, [onClose, overlaySheet]);
   const closeSheet = React.useCallback(() => {
     if (!overlaySheet) {
-      onClose();
+      closed();
       return;
     }
     if (closingSheet.current) return;
@@ -185,10 +216,17 @@ export function Screen({
     backdropProgress.set(withTiming(0, { duration: 210, easing: Easing.inOut(Easing.cubic) }));
     sheetProgress.set(
       withTiming(0, { duration: 300, easing: Easing.bezier(0.4, 0, 1, 1) }, (finished) => {
-        if (finished) scheduleOnRN(onClose);
+        if (finished) scheduleOnRN(closed);
       }),
     );
-  }, [backdropProgress, onClose, overlaySheet, sheetProgress]);
+  }, [backdropProgress, closed, overlaySheet, sheetProgress]);
+  const closeThen = React.useCallback(
+    (then: () => void) => {
+      afterClose.current = then;
+      closeSheet();
+    },
+    [closeSheet],
+  );
   const backdropAnimatedStyle = useAnimatedStyle(() => ({
     opacity: backdropProgress.get(),
   }));
@@ -272,7 +310,7 @@ export function Screen({
           )}
         </View>
       )}
-      {children}
+      <CloseThen.Provider value={closeThen}>{children}</CloseThen.Provider>
     </View>
   );
   const body = fromTop ? (
@@ -995,7 +1033,7 @@ export function Row({
   danger,
 }: {
   title: string;
-  subtitle?: string;
+  subtitle?: React.ReactNode;
   icon?: LucideIcon;
   onPress?: () => void;
   right?: React.ReactNode;

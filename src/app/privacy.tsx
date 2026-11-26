@@ -36,8 +36,8 @@ export default function Privacy() {
         you send an arrival check-in, Arrive keeps that one spot on this phone, so it can notice
         when you leave. A new check-in replaces it; no history of places is kept. Searching for an
         address sends what you type to Apple to find matches. Notifications appear only when a Live
-        Activity can&apos;t, or to confirm a send. Manual check-ins work without location or
-        notification access.
+        Activity can&apos;t, or to ask whether you made it after you send Leaving or Homebound.
+        Manual check-ins work without location or notification access.
       </Txt>
       <Section title="Smart Check-In: going separate ways" />
       <Txt>
